@@ -18,6 +18,28 @@ struct InferenceResult {
     pub confidence_intervals: Vec<(f64, f64)>,
 }
 
+#[pymethods]
+impl InferenceResult {
+    fn __repr__(&self, py: Python) -> String {
+        let mut table = String::new();
+        table.push_str("+----------------------------+----------------+\n");
+        table.push_str("| Metric                     | Value          |\n");
+        table.push_str("+----------------------------+----------------+\n");
+        table.push_str(&format!("| Average Treatment Effect   | {:14.4} |\n", self.mean_effect));
+        let num_obs = self.predictions.as_ref(py).len();
+        table.push_str(&format!("| Number of Observations     | {:14} |\n", num_obs));
+        table.push_str("+----------------------------+----------------+\n");
+        table.push_str("\n(Sample Confidence Intervals)\n");
+        for (i, ci) in self.confidence_intervals.iter().take(3).enumerate() {
+            table.push_str(&format!("Sample {}: [{:.4}, {:.4}]\n", i, ci.0, ci.1));
+        }
+        if self.confidence_intervals.len() > 3 {
+            table.push_str("...\n");
+        }
+        table
+    }
+}
+
 #[pyclass]
 struct ValidationResult {
     #[pyo3(get)]
@@ -51,6 +73,14 @@ impl Model {
             is_robust: res.is_robust,
             message: res.message,
         })
+    }
+
+    fn plot_importance(&self) {
+        println!("Placeholder: Plotting feature importance for the Causal Forest...");
+    }
+
+    fn plot_effects(&self) {
+        println!("Placeholder: Plotting individual treatment effects distribution...");
     }
 }
 

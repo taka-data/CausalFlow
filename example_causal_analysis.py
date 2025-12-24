@@ -29,20 +29,21 @@ def main():
     print("[Step 2] Estimating Heterogeneous Treatment Effects (ITE)...")
     results = model.estimate_effects(X)
 
-    print(f"\nEstimated Effects (first 5 samples):")
-    print(results.predictions[:5])
-
-    print(f"Average Estimated Effect (ATE): {results.mean_effect:.4f}")
-    print(f"Confidence Interval (first sample): {results.confidence_intervals[0]}")
+    print("\n[Causal Inference Summary]")
+    print(results)  # This calls the new __repr__
 
     # 3. Validation (Guardrail)
     print("\n[Step 3] Validating Causal Robustness...")
-    # New: specifying n_folds and is_time_series
     validation = model.validate(n_folds=10, is_time_series=False)
     if validation.is_robust:
         print(f"Success: {validation.message}")
     else:
         print(f"Warning: {validation.message}")
+
+    # 4. Visualization (Placeholders)
+    print("\n[Step 4] Visualizing Results (Placeholders)...")
+    model.plot_importance()
+    model.plot_effects()
     
     print("\nCausalFlow Analysis Complete.")
 
