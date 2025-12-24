@@ -1,0 +1,18 @@
+[package]
+name = "py-causalflow"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+name = "causalflow"
+crate-type = ["cdylib"]
+
+[dependencies]
+pyo3 = { version = "0.20", features = ["extension-module", "abi3-py37"] }
+causalflow-core = { path = "../causalflow-core" }
+causalflow-macros = { path = "../causalflow-macros" }
+numpy = "0.20"
+ndarray = "0.15"
+
+[build-dependencies]
+pyo3-build-config = "0.20"
