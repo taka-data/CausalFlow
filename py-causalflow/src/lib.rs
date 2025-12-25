@@ -1,5 +1,6 @@
 use causalflow_core::forest::CausalForest;
 use causalflow_core::validation::validate_causal_structure;
+use ndarray::{Array1, Array2};
 use numpy::{PyArray1, PyReadonlyArray1, PyReadonlyArray2, ToPyArray};
 use pyo3::prelude::*;
 
@@ -25,50 +26,35 @@ use causalflow_core::visualization::{LinkInfo, NodeInfo, VisualOutput};
 
 #[pymethods]
 impl InferenceResult {
-    fn to_visual_tag(&self) -> String {
-        let labels = self.feature_names.clone().unwrap_or_else(|| {
-            (0..self.feature_importance.len())
-                .map(|i| format!("Feature {}", i))
-                .collect()
-        });
-        let visual = VisualOutput::feature_importance(labels, self.feature_importance.clone());
+    #[pyo3(signature = (plot_type = "importance"))]
+    fn to_visual_tag(&self, py: Python, plot_type: &str) -> String {
+        let visual = self.get_visual(py, plot_type);
         format!("```json:causal-plot\n{}\n```", visual.to_json())
     }
 
-    fn to_dict(&self, py: Python) -> PyResult<PyObject> {
-        let labels = self.feature_names.clone().unwrap_or_else(|| {
-            (0..self.feature_importance.len())
-                .map(|i| format!("Feature {}", i))
-                .collect()
-        });
-        let visual = VisualOutput::feature_importance(labels, self.feature_importance.clone());
+    #[pyo3(signature = (plot_type = "importance"))]
+    fn to_dict(&self, py: Python, plot_type: &str) -> PyResult<PyObject> {
+        let visual = self.get_visual(py, plot_type);
         let json_str = visual.to_json();
         let json_module = py.import("json")?;
         let dict = json_module.call_method1("loads", (json_str,))?;
         Ok(dict.to_object(py))
     }
 
-    fn show(&self) {
-        println!("{}", self.to_visual_tag());
+    #[pyo3(signature = (plot_type = "importance"))]
+    fn show(&self, py: Python, plot_type: &str) {
+        println!("{}", self.to_visual_tag(py, plot_type));
     }
 
-    fn preview(&self, py: Python) -> PyResult<()> {
-        let labels = self.feature_names.clone().unwrap_or_else(|| {
-            (0..self.feature_importance.len())
-                .map(|i| format!("Feature {}", i))
-                .collect()
-        });
-        let visual = VisualOutput::feature_importance(labels, self.feature_importance.clone());
+    #[pyo3(signature = (plot_type = "importance"))]
+    fn preview(&self, py: Python, plot_type: &str) -> PyResult<()> {
+        let visual = self.get_visual(py, plot_type);
         render_preview(py, &visual)
     }
 
-    fn to_html(&self) -> String {
-        let labels = self.feature_names.clone().unwrap_or_else(|| {
-            (0..self.feature_importance.len())
-                .map(|i| format!("Feature {}", i))
-                .collect()
-        });
-        let visual = VisualOutput::feature_importance(labels, self.feature_importance.clone());
+    #[pyo3(signature = (plot_type = "importance"))]
+    fn to_html(&self, py: Python, plot_type: &str) -> String {
+        let visual = self.get_visual(py, plot_type);
         render_html_fragment(&visual)
     }
 
@@ -126,6 +112,60 @@ impl InferenceResult {
     }
 }
 
+impl InferenceResult {
+    fn get_visual(&self, py: Python, plot_type: &str) -> VisualOutput {
+        match plot_type {
+            "effect_dist" => {
+                let preds_array = self.predictions.as_ref(py);
+                let preds = preds_array.to_owned_array().to_vec();
+
+                // Calculate real histogram
+                let min = preds.iter().fold(f64::INFINITY, |a, &b| a.min(b));
+                let max = preds.iter().fold(f64::NEG_INFINITY, |a, &b| a.max(b));
+                let n_bins = 10;
+                let bin_width = if (max - min).abs() < f64::EPSILON {
+                    1.0
+                } else {
+                    (max - min) / n_bins as f64
+                };
+
+                let mut bins = Vec::new();
+                for i in 0..n_bins {
+                    bins.push(min + i as f64 * bin_width);
+                }
+
+                let mut counts = vec![0u64; n_bins];
+                for &p in &preds {
+                    let mut b = if bin_width == 0.0 {
+                        0
+                    } else {
+                        ((p - min) / bin_width) as usize
+                    };
+                    if b >= n_bins {
+                        b = n_bins - 1;
+                    }
+                    counts[b] += 1;
+                }
+
+                VisualOutput::effect_dist(
+                    "Individual Treatment Effect Distribution".to_string(),
+                    "Frequency".to_string(),
+                    bins,
+                    counts,
+                )
+            }
+            _ => {
+                let labels = self.feature_names.clone().unwrap_or_else(|| {
+                    (0..self.feature_importance.len())
+                        .map(|i| format!("Feature {}", i))
+                        .collect()
+                });
+                VisualOutput::feature_importance(labels, self.feature_importance.clone())
+            }
+        }
+    }
+}
+
 #[pyclass]
 struct ValidationResult {
     #[pyo3(get)]
@@ -138,6 +178,9 @@ struct ValidationResult {
 #[derive(Clone)]
 struct Model {
     inner: CausalForest,
+    x: Array2<f64>,
+    t: Array1<f64>,
+    y: Array1<f64>,
     feature_names: Option<Vec<String>>,
 }
 
@@ -166,37 +209,69 @@ impl Model {
                     weight: 1.0,
                 });
 
+                let res = self.inner.predict(&self.x);
+                let importance = res.feature_importance;
+
                 if let Some(names) = &self.feature_names {
-                    for name in names {
-                        if name != "Treatment" && name != "Outcome" {
-                            nodes.push(NodeInfo {
-                                id: name.clone(),
-                                label: name.clone(),
-                                role: "confounder".to_string(),
-                                value: 0.5,
-                            });
-                            links.push(LinkInfo {
-                                source: name.clone(),
-                                target: "Treatment".to_string(),
-                                weight: 0.5,
-                            });
-                            links.push(LinkInfo {
-                                source: name.clone(),
-                                target: "Outcome".to_string(),
-                                weight: 0.5,
-                            });
-                        }
+                    for (i, name) in names.iter().enumerate() {
+                        let val = importance.get(i).cloned().unwrap_or(0.1);
+                        nodes.push(NodeInfo {
+                            id: name.clone(),
+                            label: name.clone(),
+                            role: "confounder".to_string(),
+                            value: val,
+                        });
+                        links.push(LinkInfo {
+                            source: name.clone(),
+                            target: "Treatment".to_string(),
+                            weight: val,
+                        });
+                        links.push(LinkInfo {
+                            source: name.clone(),
+                            target: "Outcome".to_string(),
+                            weight: val,
+                        });
                     }
                 }
                 VisualOutput::causal_graph(nodes, links)
             }
             "effect_dist" => {
-                // Mock distribution data for now
+                let res = self.inner.predict(&self.x);
+                let preds = res.predictions.to_vec();
+
+                // Calculate real histogram
+                let min = preds.iter().fold(f64::INFINITY, |a, &b| a.min(b));
+                let max = preds.iter().fold(f64::NEG_INFINITY, |a, &b| a.max(b));
+                let n_bins = 10;
+                let bin_width = if (max - min).abs() < f64::EPSILON {
+                    1.0
+                } else {
+                    (max - min) / n_bins as f64
+                };
+
+                let mut bins = Vec::new();
+                for i in 0..n_bins {
+                    bins.push(min + i as f64 * bin_width);
+                }
+
+                let mut counts = vec![0u64; n_bins];
+                for &p in &preds {
+                    let mut b = if bin_width == 0.0 {
+                        0
+                    } else {
+                        ((p - min) / bin_width) as usize
+                    };
+                    if b >= n_bins {
+                        b = n_bins - 1;
+                    }
+                    counts[b] += 1;
+                }
+
                 VisualOutput::effect_dist(
-                    "Standard Causal Effect".to_string(),
+                    "Individual Treatment Effect Distribution".to_string(),
                     "Frequency".to_string(),
-                    vec![0.0, 0.1, 0.2, 0.3, 0.4, 0.5],
-                    vec![10, 50, 100, 40, 5],
+                    bins,
+                    counts,
                 )
             }
             _ => VisualOutput::feature_importance(vec![], vec![]),
@@ -206,20 +281,24 @@ impl Model {
 
 #[pymethods]
 impl Model {
+    #[pyo3(signature = (plot_type = "graph"))]
     fn to_visual_tag(&self, plot_type: &str) -> String {
         let visual = self.get_visual(plot_type);
         format!("```json:causal-plot\n{}\n```", visual.to_json())
     }
 
+    #[pyo3(signature = (plot_type = "graph"))]
     fn show(&self, plot_type: &str) {
         println!("{}", self.to_visual_tag(plot_type));
     }
 
+    #[pyo3(signature = (plot_type = "graph"))]
     fn preview(&self, py: Python, plot_type: &str) -> PyResult<()> {
         let visual = self.get_visual(plot_type);
         render_preview(py, &visual)
     }
 
+    #[pyo3(signature = (plot_type = "graph"))]
     fn to_html(&self, plot_type: &str) -> String {
         let visual = self.get_visual(plot_type);
         render_html_fragment(&visual)
@@ -240,7 +319,8 @@ impl Model {
 
     #[pyo3(signature = (n_folds = 5, is_time_series = false))]
     fn validate(&self, n_folds: usize, is_time_series: bool) -> PyResult<ValidationResult> {
-        let res = validate_causal_structure(n_folds, is_time_series);
+        let _ = is_time_series; // Suppress unused warning while keeping the name
+        let res = validate_causal_structure(&self.inner, &self.x, &self.t, &self.y, n_folds);
         Ok(ValidationResult {
             is_robust: res.is_robust,
             message: res.message,
@@ -248,11 +328,11 @@ impl Model {
     }
 
     fn plot_importance(&self) {
-        println!("Placeholder: Plotting feature importance for the Causal Forest...");
+        println!("{}", self.to_visual_tag("importance"));
     }
 
     fn plot_effects(&self) {
-        println!("Placeholder: Plotting individual treatment effects distribution...");
+        println!("{}", self.to_visual_tag("effect_dist"));
     }
 }
 
@@ -264,14 +344,17 @@ fn create_model(
     outcome: PyReadonlyArray1<f64>,
     feature_names: Option<Vec<String>>,
 ) -> PyResult<Model> {
+    let x = features.as_array().to_owned();
+    let t = treatment.as_array().to_owned();
+    let y = outcome.as_array().to_owned();
+
     let mut forest = CausalForest::new(10, 5, 5);
-    forest.fit(
-        &features.as_array().to_owned(),
-        &treatment.as_array().to_owned(),
-        &outcome.as_array().to_owned(),
-    );
+    forest.fit(&x, &t, &y);
     Ok(Model {
         inner: forest,
+        x,
+        t,
+        y,
         feature_names,
     })
 }

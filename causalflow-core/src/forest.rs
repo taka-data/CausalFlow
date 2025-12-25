@@ -71,6 +71,21 @@ impl CausalForest {
             .collect();
     }
 
+    pub fn fit_placebo(&mut self, x: &Array2<f64>, t: &Array1<f64>, y: &Array1<f64>) {
+        let mut t_shuffled = t.clone();
+        let mut rng = thread_rng();
+        let mut indices: Vec<usize> = (0..t.len()).collect();
+        indices.shuffle(&mut rng);
+        
+        // Reorder t_shuffled based on shuffled indices
+        let t_orig = t.clone();
+        for (i, &idx) in indices.iter().enumerate() {
+            t_shuffled[i] = t_orig[idx];
+        }
+
+        self.fit(x, &t_shuffled, y);
+    }
+
     pub fn predict(&self, x: &Array2<f64>) -> InferenceResult {
         let n_samples = x.nrows();
         let mut predictions = Array1::zeros(n_samples);
