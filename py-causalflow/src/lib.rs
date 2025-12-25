@@ -62,6 +62,16 @@ impl InferenceResult {
         render_preview(py, &visual)
     }
 
+    fn to_html(&self) -> String {
+        let labels = self.feature_names.clone().unwrap_or_else(|| {
+            (0..self.feature_importance.len())
+                .map(|i| format!("Feature {}", i))
+                .collect()
+        });
+        let visual = VisualOutput::feature_importance(labels, self.feature_importance.clone());
+        render_html_fragment(&visual)
+    }
+
     fn __repr__(&self, py: Python) -> String {
         self.summary(py)
     }
@@ -210,6 +220,11 @@ impl Model {
         render_preview(py, &visual)
     }
 
+    fn to_html(&self, plot_type: &str) -> String {
+        let visual = self.get_visual(plot_type);
+        render_html_fragment(&visual)
+    }
+
     fn estimate_effects(&self, py: Python, x: PyReadonlyArray2<f64>) -> PyResult<InferenceResult> {
         let x_node = x.as_array().to_owned();
         let core_res = self.inner.predict(&x_node);
@@ -349,6 +364,88 @@ fn render_preview(py: Python, visual: &VisualOutput) -> PyResult<()> {
 
     println!("\n[Preview] Opening visualization in browser: {}", path);
     Ok(())
+}
+
+fn render_html_fragment(visual: &VisualOutput) -> String {
+    let json_data = visual.to_json();
+    let div_id = format!("causal-plot-{}", uuid_gen());
+    format!(r#"
+<div id="{}" style="width: 100%; height: 500px; min-height: 400px; background: #1a1a2e; border-radius: 8px; padding: 10px;"></div>
+<script>
+(function() {{
+    const render = () => {{
+        const chartDom = document.getElementById('{}');
+        if (!chartDom) return;
+        
+        // Ensure ECharts is loaded
+        if (typeof echarts === 'undefined') {{
+            if (!window._echartsLoading) {{
+                window._echartsLoading = true;
+                const script = document.createElement('script');
+                script.src = 'https://cdn.jsdelivr.net/npm/echarts@5.4.3/dist/echarts.min.js';
+                script.onload = () => {{
+                    window._echartsLoaded = true;
+                    document.dispatchEvent(new Event('echarts-ready'));
+                }};
+                document.head.appendChild(script);
+            }}
+            document.addEventListener('echarts-ready', render);
+            return;
+        }}
+
+        const rawData = {};
+        const chart = echarts.init(chartDom, 'dark');
+        
+        let option = {{}};
+        if (rawData.visual_type === 'causal_graph') {{
+            option = {{
+                title: {{ text: rawData.title, left: 'center', textStyle: {{ color: '#4fc3f7' }} }},
+                tooltip: {{}},
+                series: [{{
+                    type: 'graph', layout: 'force',
+                    symbolSize: 40, roam: true, label: {{ show: true, fontSize: 10 }},
+                    edgeSymbol: ['none', 'arrow'],
+                    data: rawData.data.nodes.map(n => ({{
+                        name: n.label,
+                        itemStyle: {{ color: n.role === 'treatment' ? '#ff7043' : (n.role === 'outcome' ? '#66bb6a' : '#4fc3f7') }}
+                    }})),
+                    links: rawData.data.links,
+                    force: {{ repulsion: 300, edgeLength: 100 }}
+                }}]
+            }};
+        }} else if (rawData.visual_type === 'effect_dist') {{
+            option = {{
+                title: {{ text: rawData.title, left: 'center', textStyle: {{ color: '#4fc3f7' }} }},
+                xAxis: {{ type: 'category', data: rawData.data.bins, name: rawData.data.x_label }},
+                yAxis: {{ type: 'value', name: rawData.data.y_label }},
+                series: [{{ data: rawData.data.counts, type: 'bar', itemStyle: {{ color: '#4fc3f7' }} }}]
+            }};
+        }} else if (rawData.visual_type === 'feature_importance') {{
+            option = {{
+                title: {{ text: rawData.title, left: 'center', textStyle: {{ color: '#4fc3f7' }} }},
+                yAxis: {{ type: 'category', data: rawData.data.labels }},
+                xAxis: {{ type: 'value' }},
+                series: [{{ data: rawData.data.values, type: 'bar', itemStyle: {{ color: '#81c784' }} }}]
+            }};
+        }}
+        chart.setOption(option);
+        
+        // Handle Resize
+        window.addEventListener('resize', () => chart.resize());
+    }};
+    render();
+}})();
+</script>
+"#, div_id, div_id, json_data)
+}
+
+fn uuid_gen() -> String {
+    use std::collections::hash_map::DefaultHasher;
+    use std::hash::{Hash, Hasher};
+    use std::time::SystemTime;
+    let mut s = DefaultHasher::new();
+    SystemTime::now().hash(&mut s);
+    format!("{:x}", s.finish())
 }
 
 #[pymodule]

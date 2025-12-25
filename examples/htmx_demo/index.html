@@ -1,0 +1,110 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>CausalFlow + htmx Demo</title>
+    <script src="https://unpkg.com/htmx.org@1.9.10"></script>
+    <script src="https://cdn.jsdelivr.net/npm/echarts@5.4.3/dist/echarts.min.js"></script>
+    <style>
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: #0f0f1b;
+            color: #e0e0e0;
+            margin: 0;
+            padding: 40px;
+        }
+
+        .container {
+            max-width: 1000px;
+            margin: 0 auto;
+        }
+
+        h1 {
+            color: #4fc3f7;
+            border-bottom: 2px solid #1a1a2e;
+            padding-bottom: 10px;
+        }
+
+        .controls {
+            display: flex;
+            gap: 10px;
+            margin-bottom: 30px;
+        }
+
+        button {
+            background: #1a1a2e;
+            color: #4fc3f7;
+            border: 1px solid #4fc3f7;
+            padding: 10px 20px;
+            border-radius: 5px;
+            cursor: pointer;
+            transition: all 0.3s;
+        }
+
+        button:hover {
+            background: #4fc3f7;
+            color: #0f0f1b;
+        }
+
+        #visualization-container {
+            border: 1px dashed #333;
+            border-radius: 12px;
+            min-height: 500px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            position: relative;
+        }
+
+        .placeholder {
+            color: #666;
+            font-style: italic;
+        }
+
+        /* HTMX Loading Indicator */
+        .htmx-indicator {
+            opacity: 0;
+            transition: opacity 200ms ease-in;
+        }
+
+        .htmx-request .htmx-indicator {
+            opacity: 1;
+        }
+
+        .htmx-request#visualization-container {
+            filter: blur(2px);
+        }
+    </style>
+</head>
+
+<body>
+    <div class="container">
+        <h1>CausalFlow <small style="font-weight: normal; font-size: 0.5em; opacity: 0.7;">+ htmx</small></h1>
+        <p>Click the buttons below to load visualizations dynamically using <strong>htmx</strong>. No custom JavaScript
+            was written for this UI.</p>
+
+        <div class="controls">
+            <button hx-get="/plot/graph" hx-target="#visualization-container" hx-indicator="#loading">
+                Load Causal Graph
+            </button>
+            <button hx-get="/plot/importance" hx-target="#visualization-container" hx-indicator="#loading">
+                Load Feature Importance
+            </button>
+            <button hx-get="/plot/dist" hx-target="#visualization-container" hx-indicator="#loading">
+                Load Effect Distribution
+            </button>
+        </div>
+
+        <div id="loading" class="htmx-indicator" style="position: absolute; color: #fff; z-index: 10;">
+            Rendering analysis...
+        </div>
+
+        <div id="visualization-container">
+            <div class="placeholder">Select an analysis to visualize</div>
+        </div>
+    </div>
+</body>
+
+</html>
