@@ -22,8 +22,13 @@ def main():
 
     # 1. Create a causal model (Causal Forest)
     print("\n[Step 1] Creating Causal Model (Rust-backed)...")
-    # Using named arguments
-    model = cf.create_model(features=X, treatment=T, outcome=Y)
+    # Using named arguments and passing feature names
+    model = cf.create_model(
+        features=X, 
+        treatment=T, 
+        outcome=Y, 
+        feature_names=list(data.feature_names)
+    )
     
     # 2. Estimate effects
     print("[Step 2] Estimating Heterogeneous Treatment Effects (ITE)...")

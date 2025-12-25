@@ -9,6 +9,7 @@ pub struct CausalForest {
     pub max_depth: usize,
     pub min_leaf_size: usize,
     pub trees: Vec<CausalTree>,
+    pub n_features: usize,
 }
 
 #[derive(serde::Serialize)]
@@ -16,10 +17,12 @@ pub struct InferenceResult {
     pub predictions: Array1<f64>,
     pub mean_effect: f64,
     pub confidence_intervals: Vec<(f64, f64)>,
+    pub feature_importance: Vec<f64>,
 }
 
 pub struct CausalTree {
     pub root: Option<Box<Node>>,
+    pub feature_importance: Vec<f64>,
 }
 
 pub enum Node {
@@ -42,14 +45,17 @@ impl CausalForest {
             max_depth,
             min_leaf_size,
             trees: Vec::new(),
+            n_features: 0,
         }
     }
 
     pub fn fit(&mut self, x: &Array2<f64>, t: &Array1<f64>, y: &Array1<f64>) {
+        let n_features = x.ncols();
+        self.n_features = n_features;
         self.trees = (0..self.n_estimators)
             .into_par_iter()
             .map(|_| {
-                let mut tree = CausalTree::new();
+                let mut tree = CausalTree::new(n_features);
                 tree.fit(x.view(), t.view(), y.view(), self.max_depth, self.min_leaf_size);
                 tree
             })
@@ -71,17 +77,37 @@ impl CausalForest {
         let mean_effect = predictions.mean().unwrap_or(0.0);
         let confidence_intervals = predictions.iter().map(|&p| (p - 0.1, p + 0.1)).collect();
 
+        // Aggregate feature importance
+        let mut feature_importance = vec![0.0; self.n_features];
+        if !self.trees.is_empty() {
+            for tree in &self.trees {
+                for (i, &imp) in tree.feature_importance.iter().enumerate() {
+                    feature_importance[i] += imp;
+                }
+            }
+            let sum: f64 = feature_importance.iter().sum();
+            if sum > 0.0 {
+                for imp in feature_importance.iter_mut() {
+                    *imp /= sum;
+                }
+            }
+        }
+
         InferenceResult {
             predictions,
             mean_effect,
             confidence_intervals,
+            feature_importance,
         }
     }
 }
 
 impl CausalTree {
-    pub fn new() -> Self {
-        Self { root: None }
+    pub fn new(n_features: usize) -> Self {
+        Self { 
+            root: None,
+            feature_importance: vec![0.0; n_features],
+        }
     }
 
     pub fn fit(&mut self, x: ArrayView2<f64>, t: ArrayView1<f64>, y: ArrayView1<f64>, max_depth: usize, min_leaf_size: usize) {
@@ -106,7 +132,7 @@ impl CausalTree {
     }
 
     fn build_tree(
-        &self,
+        &mut self,
         x: ArrayView2<f64>,
         t: ArrayView1<f64>,
         y: ArrayView1<f64>,
@@ -131,14 +157,12 @@ impl CausalTree {
         sampled_features.shuffle(&mut rng);
         let sampled_features = &sampled_features[..n_sub_features];
 
-        // Parallelize feature evaluation
         let best_split = sampled_features.par_iter().map(|&f_idx| {
             let mut local_rng = thread_rng();
             let mut local_best_gain = -1.0;
             let mut local_best_split = None;
 
             let values: Vec<f64> = split_idx.iter().map(|&i| x[[i, f_idx]]).collect();
-            // Evaluate up to 10 split candidates for this feature
             for _ in 0..10 {
                 let threshold = values[local_rng.gen_range(0..values.len())];
                 
@@ -158,7 +182,10 @@ impl CausalTree {
             (local_best_gain, local_best_split)
         }).reduce(|| (-1.0, None), |a, b| if a.0 > b.0 { a } else { b });
 
-        if let Some((_, Some((f_idx, threshold, left_split, right_split)))) = Some(best_split) {
+        if let Some((gain, Some((f_idx, threshold, left_split, right_split)))) = Some(best_split) {
+            // Track importance
+            self.feature_importance[f_idx] += gain;
+
             let (left_est, right_est): (Vec<usize>, Vec<usize>) = est_idx.iter()
                 .partition(|&&i| x[[i, f_idx]] <= threshold);
 

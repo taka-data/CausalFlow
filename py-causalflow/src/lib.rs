@@ -9,18 +9,25 @@ fn analyze_flow() -> PyResult<String> {
 }
 
 #[pyclass]
-struct InferenceResult {
+pub struct InferenceResult {
     #[pyo3(get)]
     pub mean_effect: f64,
     #[pyo3(get)]
     pub predictions: Py<PyArray1<f64>>,
     #[pyo3(get)]
     pub confidence_intervals: Vec<(f64, f64)>,
+    #[pyo3(get)]
+    pub feature_importance: Vec<f64>,
+    pub feature_names: Option<Vec<String>>,
 }
 
 #[pymethods]
 impl InferenceResult {
     fn __repr__(&self, py: Python) -> String {
+        self.summary(py)
+    }
+
+    fn summary(&self, py: Python) -> String {
         let mut table = String::new();
         table.push_str("+----------------------------+----------------+\n");
         table.push_str("| Metric                     | Value          |\n");
@@ -29,13 +36,34 @@ impl InferenceResult {
         let num_obs = self.predictions.as_ref(py).len();
         table.push_str(&format!("| Number of Observations     | {:14} |\n", num_obs));
         table.push_str("+----------------------------+----------------+\n");
-        table.push_str("\n(Sample Confidence Intervals)\n");
-        for (i, ci) in self.confidence_intervals.iter().take(3).enumerate() {
-            table.push_str(&format!("Sample {}: [{:.4}, {:.4}]\n", i, ci.0, ci.1));
+        
+        table.push_str("\n[Feature Importance]\n");
+        if let Some(names) = &self.feature_names {
+            for (i, &imp) in self.feature_importance.iter().enumerate() {
+                let name = names.get(i).cloned().unwrap_or_else(|| format!("Feature {}", i));
+                table.push_str(&format!("{:<20}: {:.4}\n", name, imp));
+            }
+        } else {
+            for (i, &imp) in self.feature_importance.iter().enumerate() {
+                table.push_str(&format!("Feature {:<12}: {:.4}\n", i, imp));
+            }
         }
-        if self.confidence_intervals.len() > 3 {
-            table.push_str("...\n");
+
+        table.push_str("\n[Interpretation]\n");
+        if self.mean_effect > 0.0 {
+            table.push_str(&format!(
+                "The treatment has a POSITIVE average effect of {:.4}.\n",
+                self.mean_effect
+            ));
+        } else if self.mean_effect < 0.0 {
+            table.push_str(&format!(
+                "The treatment has a NEGATIVE average effect of {:.4}.\n",
+                self.mean_effect
+            ));
+        } else {
+            table.push_str("The treatment has NO average effect on the outcome.\n");
         }
+        
         table
     }
 }
@@ -51,6 +79,7 @@ struct ValidationResult {
 #[pyclass]
 struct Model {
     inner: CausalForest,
+    feature_names: Option<Vec<String>>,
 }
 
 #[pymethods]
@@ -63,6 +92,8 @@ impl Model {
             mean_effect: core_res.mean_effect,
             predictions: core_res.predictions.to_pyarray(py).to_owned(),
             confidence_intervals: core_res.confidence_intervals,
+            feature_importance: core_res.feature_importance,
+            feature_names: self.feature_names.clone(),
         })
     }
 
@@ -85,15 +116,19 @@ impl Model {
 }
 
 #[pyfunction]
-#[pyo3(signature = (features, treatment, outcome))]
+#[pyo3(signature = (features, treatment, outcome, feature_names = None))]
 fn create_model(
     features: PyReadonlyArray2<f64>,
     treatment: PyReadonlyArray1<f64>,
-    outcome: PyReadonlyArray1<f64>
+    outcome: PyReadonlyArray1<f64>,
+    feature_names: Option<Vec<String>>,
 ) -> PyResult<Model> {
     let mut forest = CausalForest::new(10, 5, 5);
     forest.fit(&features.as_array().to_owned(), &treatment.as_array().to_owned(), &outcome.as_array().to_owned());
-    Ok(Model { inner: forest })
+    Ok(Model { 
+        inner: forest,
+        feature_names,
+    })
 }
 
 #[pymodule]

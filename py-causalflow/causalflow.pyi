@@ -1,11 +1,13 @@
 import numpy as np
 import numpy.typing as npt
-from typing import List, Tuple
+from typing import List, Tuple, Optional
 
 class InferenceResult:
     mean_effect: float
     predictions: npt.NDArray[np.float64]
     confidence_intervals: List[Tuple[float, float]]
+    feature_importance: List[float]
+    def summary(self) -> str: ...
 
 class ValidationResult:
     is_robust: bool
@@ -20,7 +22,8 @@ class Model:
 def create_model(
     features: npt.NDArray[np.float64],
     treatment: npt.NDArray[np.float64],
-    outcome: npt.NDArray[np.float64]
+    outcome: npt.NDArray[np.float64],
+    feature_names: Optional[List[str]] = None
 ) -> Model: ...
 
 def analyze_flow() -> str: ...
