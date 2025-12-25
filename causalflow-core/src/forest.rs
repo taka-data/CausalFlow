@@ -1,8 +1,8 @@
-use ndarray::{Array1, Array2, ArrayView2, ArrayView1};
-use rayon::prelude::*;
+use ndarray::{Array1, Array2, ArrayView1, ArrayView2};
 use rand::seq::SliceRandom;
 use rand::thread_rng;
 use rand::Rng;
+use rayon::prelude::*;
 
 #[derive(Clone)]
 pub struct CausalForest {
@@ -59,7 +59,13 @@ impl CausalForest {
             .into_par_iter()
             .map(|_| {
                 let mut tree = CausalTree::new(n_features);
-                tree.fit(x.view(), t.view(), y.view(), self.max_depth, self.min_leaf_size);
+                tree.fit(
+                    x.view(),
+                    t.view(),
+                    y.view(),
+                    self.max_depth,
+                    self.min_leaf_size,
+                );
                 tree
             })
             .collect();
@@ -68,11 +74,11 @@ impl CausalForest {
     pub fn predict(&self, x: &Array2<f64>) -> InferenceResult {
         let n_samples = x.nrows();
         let mut predictions = Array1::zeros(n_samples);
-        
+
         for tree in &self.trees {
             predictions += &tree.predict(x);
         }
-        
+
         if !self.trees.is_empty() {
             predictions /= self.trees.len() as f64;
         }
@@ -107,25 +113,34 @@ impl CausalForest {
 
 impl CausalTree {
     pub fn new(n_features: usize) -> Self {
-        Self { 
+        Self {
             root: None,
             feature_importance: vec![0.0; n_features],
         }
     }
 
-    pub fn fit(&mut self, x: ArrayView2<f64>, t: ArrayView1<f64>, y: ArrayView1<f64>, max_depth: usize, min_leaf_size: usize) {
+    pub fn fit(
+        &mut self,
+        x: ArrayView2<f64>,
+        t: ArrayView1<f64>,
+        y: ArrayView1<f64>,
+        max_depth: usize,
+        min_leaf_size: usize,
+    ) {
         let n_samples = x.nrows();
         let mut rng = thread_rng();
-        
+
         let mut indices: Vec<usize> = (0..n_samples).collect();
         indices.shuffle(&mut rng);
-        
+
         let split_size = n_samples / 2;
         let split_indices = &indices[..split_size];
         let estimation_indices = &indices[split_size..];
 
         self.root = Some(self.build_tree(
-            x, t, y,
+            x,
+            t,
+            y,
             split_indices,
             estimation_indices,
             0,
@@ -134,6 +149,7 @@ impl CausalTree {
         ));
     }
 
+    #[allow(clippy::too_many_arguments)]
     fn build_tree(
         &mut self,
         x: ArrayView2<f64>,
@@ -145,7 +161,10 @@ impl CausalTree {
         max_depth: usize,
         min_leaf_size: usize,
     ) -> Box<Node> {
-        if depth >= max_depth || split_idx.len() < min_leaf_size * 2 || est_idx.len() < min_leaf_size {
+        if depth >= max_depth
+            || split_idx.len() < min_leaf_size * 2
+            || est_idx.len() < min_leaf_size
+        {
             return Box::new(Node::Leaf {
                 treatment_effect: self.estimate_effect(t, y, est_idx),
                 size: est_idx.len(),
@@ -154,49 +173,70 @@ impl CausalTree {
 
         let n_features = x.ncols();
         let mut rng = thread_rng();
-        
+
         let n_sub_features = (n_features as f64).sqrt() as usize;
         let mut sampled_features: Vec<usize> = (0..n_features).collect();
         sampled_features.shuffle(&mut rng);
         let sampled_features = &sampled_features[..n_sub_features];
 
-        let best_split = sampled_features.par_iter().map(|&f_idx| {
-            let mut local_rng = thread_rng();
-            let mut local_best_gain = -1.0;
-            let mut local_best_split = None;
+        let best_split = sampled_features
+            .par_iter()
+            .map(|&f_idx| {
+                let mut local_rng = thread_rng();
+                let mut local_best_gain = -1.0;
+                let mut local_best_split = None;
 
-            let values: Vec<f64> = split_idx.iter().map(|&i| x[[i, f_idx]]).collect();
-            for _ in 0..10 {
-                let threshold = values[local_rng.gen_range(0..values.len())];
-                
-                let (left_idx, right_idx): (Vec<usize>, Vec<usize>) = split_idx.iter()
-                    .partition(|&&i| x[[i, f_idx]] <= threshold);
+                let values: Vec<f64> = split_idx.iter().map(|&i| x[[i, f_idx]]).collect();
+                for _ in 0..10 {
+                    let threshold = values[local_rng.gen_range(0..values.len())];
 
-                if left_idx.len() < min_leaf_size || right_idx.len() < min_leaf_size {
-                    continue;
+                    let (left_idx, right_idx): (Vec<usize>, Vec<usize>) =
+                        split_idx.iter().partition(|&&i| x[[i, f_idx]] <= threshold);
+
+                    if left_idx.len() < min_leaf_size || right_idx.len() < min_leaf_size {
+                        continue;
+                    }
+
+                    let gain = self.calculate_causal_gain(t, y, &left_idx, &right_idx);
+                    if gain > local_best_gain {
+                        local_best_gain = gain;
+                        local_best_split = Some((f_idx, threshold, left_idx, right_idx));
+                    }
                 }
-
-                let gain = self.calculate_causal_gain(t, y, &left_idx, &right_idx);
-                if gain > local_best_gain {
-                    local_best_gain = gain;
-                    local_best_split = Some((f_idx, threshold, left_idx, right_idx));
-                }
-            }
-            (local_best_gain, local_best_split)
-        }).reduce(|| (-1.0, None), |a, b| if a.0 > b.0 { a } else { b });
+                (local_best_gain, local_best_split)
+            })
+            .reduce(|| (-1.0, None), |a, b| if a.0 > b.0 { a } else { b });
 
         if let Some((gain, Some((f_idx, threshold, left_split, right_split)))) = Some(best_split) {
             // Track importance
             self.feature_importance[f_idx] += gain;
 
-            let (left_est, right_est): (Vec<usize>, Vec<usize>) = est_idx.iter()
-                .partition(|&&i| x[[i, f_idx]] <= threshold);
+            let (left_est, right_est): (Vec<usize>, Vec<usize>) =
+                est_idx.iter().partition(|&&i| x[[i, f_idx]] <= threshold);
 
             Box::new(Node::Internal {
                 feature_idx: f_idx,
                 threshold,
-                left: self.build_tree(x, t, y, &left_split, &left_est, depth + 1, max_depth, min_leaf_size),
-                right: self.build_tree(x, t, y, &right_split, &right_est, depth + 1, max_depth, min_leaf_size),
+                left: self.build_tree(
+                    x,
+                    t,
+                    y,
+                    &left_split,
+                    &left_est,
+                    depth + 1,
+                    max_depth,
+                    min_leaf_size,
+                ),
+                right: self.build_tree(
+                    x,
+                    t,
+                    y,
+                    &right_split,
+                    &right_est,
+                    depth + 1,
+                    max_depth,
+                    min_leaf_size,
+                ),
             })
         } else {
             Box::new(Node::Leaf {
@@ -206,13 +246,19 @@ impl CausalTree {
         }
     }
 
-    fn calculate_causal_gain(&self, t: ArrayView1<f64>, y: ArrayView1<f64>, left: &[usize], right: &[usize]) -> f64 {
+    fn calculate_causal_gain(
+        &self,
+        t: ArrayView1<f64>,
+        y: ArrayView1<f64>,
+        left: &[usize],
+        right: &[usize],
+    ) -> f64 {
         let tau_l = self.estimate_effect(t, y, left);
         let tau_r = self.estimate_effect(t, y, right);
         let nl = left.len() as f64;
         let nr = right.len() as f64;
         let n = nl + nr;
-        
+
         (nl * nr / (n * n)) * (tau_l - tau_r).powi(2)
     }
 
@@ -243,15 +289,15 @@ impl CausalTree {
         let n_samples = x.nrows();
         let mut preds = Array1::zeros(n_samples);
         if let Some(ref root) = self.root {
-             for i in 0..n_samples {
-                 let row = x.row(i);
-                 if let Some(slice) = row.as_slice() {
-                     preds[i] = root.predict(slice);
-                 } else {
-                     let row_vec: Vec<f64> = row.iter().cloned().collect();
-                     preds[i] = root.predict(&row_vec);
-                 }
-             }
+            for i in 0..n_samples {
+                let row = x.row(i);
+                if let Some(slice) = row.as_slice() {
+                    preds[i] = root.predict(slice);
+                } else {
+                    let row_vec: Vec<f64> = row.iter().cloned().collect();
+                    preds[i] = root.predict(&row_vec);
+                }
+            }
         }
         preds
     }
@@ -260,8 +306,15 @@ impl CausalTree {
 impl Node {
     pub fn predict(&self, x: &[f64]) -> f64 {
         match self {
-            Node::Leaf { treatment_effect, .. } => *treatment_effect,
-            Node::Internal { feature_idx, threshold, left, right } => {
+            Node::Leaf {
+                treatment_effect, ..
+            } => *treatment_effect,
+            Node::Internal {
+                feature_idx,
+                threshold,
+                left,
+                right,
+            } => {
                 if x[*feature_idx] <= *threshold {
                     left.predict(x)
                 } else {

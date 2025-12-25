@@ -1,4 +1,4 @@
-use serde::{Serialize, Deserialize};
+use serde::{Deserialize, Serialize};
 
 #[derive(Serialize, Deserialize, Debug)]
 pub struct VisualOutput {
@@ -63,7 +63,13 @@ impl VisualOutput {
         Self {
             visual_type: "effect_dist".to_string(),
             title: "Treatment Effect Distribution".to_string(),
-            data: serde_json::to_value(EffectDistData { x_label, y_label, bins, counts }).unwrap(),
+            data: serde_json::to_value(EffectDistData {
+                x_label,
+                y_label,
+                bins,
+                counts,
+            })
+            .unwrap(),
         }
     }
 

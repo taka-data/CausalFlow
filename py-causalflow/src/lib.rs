@@ -1,7 +1,7 @@
-use pyo3::prelude::*;
-use numpy::{PyArray1, PyReadonlyArray1, PyReadonlyArray2, ToPyArray};
 use causalflow_core::forest::CausalForest;
 use causalflow_core::validation::validate_causal_structure;
+use numpy::{PyArray1, PyReadonlyArray1, PyReadonlyArray2, ToPyArray};
+use pyo3::prelude::*;
 
 #[pyfunction]
 fn analyze_flow() -> PyResult<String> {
@@ -21,13 +21,15 @@ pub struct InferenceResult {
     pub feature_names: Option<Vec<String>>,
 }
 
-use causalflow_core::visualization::{VisualOutput, NodeInfo, LinkInfo};
+use causalflow_core::visualization::{LinkInfo, NodeInfo, VisualOutput};
 
 #[pymethods]
 impl InferenceResult {
     fn to_visual_tag(&self) -> String {
         let labels = self.feature_names.clone().unwrap_or_else(|| {
-            (0..self.feature_importance.len()).map(|i| format!("Feature {}", i)).collect()
+            (0..self.feature_importance.len())
+                .map(|i| format!("Feature {}", i))
+                .collect()
         });
         let visual = VisualOutput::feature_importance(labels, self.feature_importance.clone());
         format!("```json:causal-plot\n{}\n```", visual.to_json())
@@ -35,7 +37,9 @@ impl InferenceResult {
 
     fn to_dict(&self, py: Python) -> PyResult<PyObject> {
         let labels = self.feature_names.clone().unwrap_or_else(|| {
-            (0..self.feature_importance.len()).map(|i| format!("Feature {}", i)).collect()
+            (0..self.feature_importance.len())
+                .map(|i| format!("Feature {}", i))
+                .collect()
         });
         let visual = VisualOutput::feature_importance(labels, self.feature_importance.clone());
         let json_str = visual.to_json();
@@ -50,7 +54,9 @@ impl InferenceResult {
 
     fn preview(&self, py: Python) -> PyResult<()> {
         let labels = self.feature_names.clone().unwrap_or_else(|| {
-            (0..self.feature_importance.len()).map(|i| format!("Feature {}", i)).collect()
+            (0..self.feature_importance.len())
+                .map(|i| format!("Feature {}", i))
+                .collect()
         });
         let visual = VisualOutput::feature_importance(labels, self.feature_importance.clone());
         render_preview(py, &visual)
@@ -65,15 +71,24 @@ impl InferenceResult {
         table.push_str("+----------------------------+----------------+\n");
         table.push_str("| Metric                     | Value          |\n");
         table.push_str("+----------------------------+----------------+\n");
-        table.push_str(&format!("| Average Treatment Effect   | {:14.4} |\n", self.mean_effect));
+        table.push_str(&format!(
+            "| Average Treatment Effect   | {:14.4} |\n",
+            self.mean_effect
+        ));
         let num_obs = self.predictions.as_ref(py).len();
-        table.push_str(&format!("| Number of Observations     | {:14} |\n", num_obs));
+        table.push_str(&format!(
+            "| Number of Observations     | {:14} |\n",
+            num_obs
+        ));
         table.push_str("+----------------------------+----------------+\n");
-        
+
         table.push_str("\n[Feature Importance]\n");
         if let Some(names) = &self.feature_names {
             for (i, &imp) in self.feature_importance.iter().enumerate() {
-                let name = names.get(i).cloned().unwrap_or_else(|| format!("Feature {}", i));
+                let name = names
+                    .get(i)
+                    .cloned()
+                    .unwrap_or_else(|| format!("Feature {}", i));
                 table.push_str(&format!("{:<20}: {:.4}\n", name, imp));
             }
         } else {
@@ -96,7 +111,7 @@ impl InferenceResult {
         } else {
             table.push_str("The treatment has NO average effect on the outcome.\n");
         }
-        
+
         table
     }
 }
@@ -123,46 +138,58 @@ impl Model {
                 let mut nodes = Vec::new();
                 let mut links = Vec::new();
 
-                nodes.push(NodeInfo { 
-                    id: "Treatment".to_string(), 
+                nodes.push(NodeInfo {
+                    id: "Treatment".to_string(),
                     label: "Treatment".to_string(),
                     role: "treatment".to_string(),
-                    value: 1.0 
+                    value: 1.0,
                 });
-                nodes.push(NodeInfo { 
-                    id: "Outcome".to_string(), 
+                nodes.push(NodeInfo {
+                    id: "Outcome".to_string(),
                     label: "Outcome".to_string(),
                     role: "outcome".to_string(),
-                    value: 1.0 
+                    value: 1.0,
                 });
-                links.push(LinkInfo { source: "Treatment".to_string(), target: "Outcome".to_string(), weight: 1.0 });
+                links.push(LinkInfo {
+                    source: "Treatment".to_string(),
+                    target: "Outcome".to_string(),
+                    weight: 1.0,
+                });
 
                 if let Some(names) = &self.feature_names {
                     for name in names {
                         if name != "Treatment" && name != "Outcome" {
-                            nodes.push(NodeInfo { 
-                                id: name.clone(), 
+                            nodes.push(NodeInfo {
+                                id: name.clone(),
                                 label: name.clone(),
                                 role: "confounder".to_string(),
-                                value: 0.5
+                                value: 0.5,
                             });
-                            links.push(LinkInfo { source: name.clone(), target: "Treatment".to_string(), weight: 0.5 });
-                            links.push(LinkInfo { source: name.clone(), target: "Outcome".to_string(), weight: 0.5 });
+                            links.push(LinkInfo {
+                                source: name.clone(),
+                                target: "Treatment".to_string(),
+                                weight: 0.5,
+                            });
+                            links.push(LinkInfo {
+                                source: name.clone(),
+                                target: "Outcome".to_string(),
+                                weight: 0.5,
+                            });
                         }
                     }
                 }
                 VisualOutput::causal_graph(nodes, links)
-            },
+            }
             "effect_dist" => {
                 // Mock distribution data for now
                 VisualOutput::effect_dist(
                     "Standard Causal Effect".to_string(),
                     "Frequency".to_string(),
                     vec![0.0, 0.1, 0.2, 0.3, 0.4, 0.5],
-                    vec![10, 50, 100, 40, 5]
+                    vec![10, 50, 100, 40, 5],
                 )
-            },
-            _ => VisualOutput::feature_importance(vec![], vec![])
+            }
+            _ => VisualOutput::feature_importance(vec![], vec![]),
         }
     }
 }
@@ -186,7 +213,7 @@ impl Model {
     fn estimate_effects(&self, py: Python, x: PyReadonlyArray2<f64>) -> PyResult<InferenceResult> {
         let x_node = x.as_array().to_owned();
         let core_res = self.inner.predict(&x_node);
-        
+
         Ok(InferenceResult {
             mean_effect: core_res.mean_effect,
             predictions: core_res.predictions.to_pyarray(py).to_owned(),
@@ -223,8 +250,12 @@ fn create_model(
     feature_names: Option<Vec<String>>,
 ) -> PyResult<Model> {
     let mut forest = CausalForest::new(10, 5, 5);
-    forest.fit(&features.as_array().to_owned(), &treatment.as_array().to_owned(), &outcome.as_array().to_owned());
-    Ok(Model { 
+    forest.fit(
+        &features.as_array().to_owned(),
+        &treatment.as_array().to_owned(),
+        &outcome.as_array().to_owned(),
+    );
+    Ok(Model {
         inner: forest,
         feature_names,
     })
@@ -242,7 +273,8 @@ fn plot_model(py: Python, model: Model, plot: &str) -> PyResult<PyObject> {
 
 fn render_preview(py: Python, visual: &VisualOutput) -> PyResult<()> {
     let json_data = visual.to_json();
-    let html_template = format!(r#"
+    let html_template = format!(
+        r#"
 <!DOCTYPE html>
 <html>
 <head>
@@ -296,12 +328,14 @@ fn render_preview(py: Python, visual: &VisualOutput) -> PyResult<()> {
     </script>
 </body>
 </html>
-"#, visual.title, visual.title, json_data);
+"#,
+        visual.title, visual.title, json_data
+    );
 
     let tempfile = py.import("tempfile")?;
     let res = tempfile.call_method1("mkstemp", (".html",))?;
     let path = res.get_item(1)?.extract::<String>()?;
-    
+
     let builtins = py.import("builtins")?;
     let f = builtins.call_method1("open", (&path, "w"))?;
     f.call_method1("write", (html_template,))?;
