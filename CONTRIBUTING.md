@@ -13,7 +13,7 @@ pip install --upgrade pip
 
 # Install dependencies and CausalFlow in editable mode
 pip install numpy scikit-learn pandas
-cd py-causalflow && maturin develop && cd ..
+maturin develop
 ```
 
 2.  **Create a Feature Branch**:

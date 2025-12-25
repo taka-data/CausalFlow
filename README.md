@@ -25,11 +25,17 @@ CausalFlow provides a state-of-the-art **Causal Forest (Generalized Random Fores
 - Python 3.8+
 - `maturin` (for building from source)
 
-### From Source
+### 1. Installation
 
 ```bash
-git clone https://github.com/taka-data/CausalFlow.git
-cd CausalFlow/py-causalflow
+# Clone the repository
+git clone https://github.com/taka-data/CausalFlow
+cd CausalFlow
+
+# Set up environment and install
+python3 -m venv .venv
+source .venv/bin/activate
+pip install maturin numpy pandas scikit-learn
 maturin develop
 ```
 
