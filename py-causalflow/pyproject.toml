@@ -1,0 +1,26 @@
+[build-system]
+requires = ["maturin>=1.0,<2.0"]
+build-backend = "maturin"
+
+[project]
+name = "py-causalflow"
+version = "0.1.0"
+description = "High-performance Causal Inference engine powered by Rust"
+authors = [
+    { name = "CausalFlow Contributors" }
+]
+requires-python = ">=3.8"
+dependencies = [
+    "numpy>=1.20",
+]
+classifiers = [
+    "Programming Language :: Rust",
+    "Programming Language :: Python :: Implementation :: CPython",
+    "Topic :: Scientific/Engineering :: Information Analysis",
+]
+
+[tool.maturin]
+features = ["pyo3/extension-module"]
+module-name = "causalflow"
+# Include the type stub file
+include = ["causalflow.pyi"]
