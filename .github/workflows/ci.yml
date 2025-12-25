@@ -40,6 +40,4 @@ jobs:
       run: cargo test --all
 
     - name: Build Python Extension
-      run: |
-        cd py-causalflow
-        maturin build
+      run: maturin build
