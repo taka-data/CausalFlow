@@ -57,12 +57,18 @@ model = cf.create_model(
 results = model.estimate_effects(X)
 print(results)  # Displays a structured summary table & interpretation
 
-# 3. Validate Robustness
+# 3. Headless Visualization (for LLM/Chat UI)
+viz_data = cf.plot_model(model, plot='graph')
+print(f"```json:causal-plot\n{viz_data}\n```")
+
+# 4. Validate Robustness
 validation = model.validate(n_folds=5)
 print(validation.message)
 ```
 
-## Project Structure
+## Headless Visualization concept
+
+CausalFlow follows a "Headless Visualization" architecture. The Python SDK doesn't generate images directly (like Matplotlib). Instead, it outputs strictly structured JSON data intended for a Custom ChatGPT-like UI. This ensures the best design consistency and zero hallucination of data by the LLM.
 
 - `causalflow-core`: Core Rust library for causal algorithms.
 - `py-causalflow`: Python bindings using PyO3.

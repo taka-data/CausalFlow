@@ -4,6 +4,7 @@ use rand::seq::SliceRandom;
 use rand::thread_rng;
 use rand::Rng;
 
+#[derive(Clone)]
 pub struct CausalForest {
     pub n_estimators: usize,
     pub max_depth: usize,
@@ -12,7 +13,7 @@ pub struct CausalForest {
     pub n_features: usize,
 }
 
-#[derive(serde::Serialize)]
+#[derive(serde::Serialize, serde::Deserialize, Clone)]
 pub struct InferenceResult {
     pub predictions: Array1<f64>,
     pub mean_effect: f64,
@@ -20,11 +21,13 @@ pub struct InferenceResult {
     pub feature_importance: Vec<f64>,
 }
 
+#[derive(Clone)]
 pub struct CausalTree {
     pub root: Option<Box<Node>>,
     pub feature_importance: Vec<f64>,
 }
 
+#[derive(Clone)]
 pub enum Node {
     Leaf {
         treatment_effect: f64,

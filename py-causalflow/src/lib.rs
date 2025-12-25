@@ -21,7 +21,7 @@ pub struct InferenceResult {
     pub feature_names: Option<Vec<String>>,
 }
 
-use causalflow_core::visualization::{VisualOutput, NodeInfo, EdgeInfo};
+use causalflow_core::visualization::{VisualOutput, NodeInfo, LinkInfo};
 
 #[pymethods]
 impl InferenceResult {
@@ -31,6 +31,17 @@ impl InferenceResult {
         });
         let visual = VisualOutput::feature_importance(labels, self.feature_importance.clone());
         format!("```json:causal-plot\n{}\n```", visual.to_json())
+    }
+
+    fn to_dict(&self, py: Python) -> PyResult<PyObject> {
+        let labels = self.feature_names.clone().unwrap_or_else(|| {
+            (0..self.feature_importance.len()).map(|i| format!("Feature {}", i)).collect()
+        });
+        let visual = VisualOutput::feature_importance(labels, self.feature_importance.clone());
+        let json_str = visual.to_json();
+        let json_module = py.import("json")?;
+        let dict = json_module.call_method1("loads", (json_str,))?;
+        Ok(dict.to_object(py))
     }
 
     fn __repr__(&self, py: Python) -> String {
@@ -87,32 +98,67 @@ struct ValidationResult {
 }
 
 #[pyclass]
+#[derive(Clone)]
 struct Model {
     inner: CausalForest,
     feature_names: Option<Vec<String>>,
 }
 
+impl Model {
+    fn get_visual(&self, plot_type: &str) -> VisualOutput {
+        match plot_type {
+            "graph" => {
+                let mut nodes = Vec::new();
+                let mut links = Vec::new();
+
+                nodes.push(NodeInfo { 
+                    id: "Treatment".to_string(), 
+                    label: "Treatment".to_string(),
+                    role: "treatment".to_string(),
+                    value: 1.0 
+                });
+                nodes.push(NodeInfo { 
+                    id: "Outcome".to_string(), 
+                    label: "Outcome".to_string(),
+                    role: "outcome".to_string(),
+                    value: 1.0 
+                });
+                links.push(LinkInfo { source: "Treatment".to_string(), target: "Outcome".to_string(), weight: 1.0 });
+
+                if let Some(names) = &self.feature_names {
+                    for name in names {
+                        if name != "Treatment" && name != "Outcome" {
+                            nodes.push(NodeInfo { 
+                                id: name.clone(), 
+                                label: name.clone(),
+                                role: "confounder".to_string(),
+                                value: 0.5
+                            });
+                            links.push(LinkInfo { source: name.clone(), target: "Treatment".to_string(), weight: 0.5 });
+                            links.push(LinkInfo { source: name.clone(), target: "Outcome".to_string(), weight: 0.5 });
+                        }
+                    }
+                }
+                VisualOutput::causal_graph(nodes, links)
+            },
+            "effect_dist" => {
+                // Mock distribution data for now
+                VisualOutput::effect_dist(
+                    "Standard Causal Effect".to_string(),
+                    "Frequency".to_string(),
+                    vec![0.0, 0.1, 0.2, 0.3, 0.4, 0.5],
+                    vec![10, 50, 100, 40, 5]
+                )
+            },
+            _ => VisualOutput::feature_importance(vec![], vec![])
+        }
+    }
+}
+
 #[pymethods]
 impl Model {
-    fn to_visual_tag(&self) -> String {
-        let mut nodes = Vec::new();
-        let mut edges = Vec::new();
-
-        nodes.push(NodeInfo { id: "Treatment".to_string(), role: "treatment".to_string() });
-        nodes.push(NodeInfo { id: "Outcome".to_string(), role: "outcome".to_string() });
-        edges.push(EdgeInfo { source: "Treatment".to_string(), target: "Outcome".to_string(), weight: 1.0 });
-
-        if let Some(names) = &self.feature_names {
-            for name in names {
-                if name != "Treatment" && name != "Outcome" {
-                    nodes.push(NodeInfo { id: name.clone(), role: "confounder".to_string() });
-                    edges.push(EdgeInfo { source: name.clone(), target: "Treatment".to_string(), weight: 0.5 });
-                    edges.push(EdgeInfo { source: name.clone(), target: "Outcome".to_string(), weight: 0.5 });
-                }
-            }
-        }
-
-        let visual = VisualOutput::causal_graph(nodes, edges);
+    fn to_visual_tag(&self, plot_type: &str) -> String {
+        let visual = self.get_visual(plot_type);
         format!("```json:causal-plot\n{}\n```", visual.to_json())
     }
 
@@ -163,10 +209,21 @@ fn create_model(
     })
 }
 
+#[pyfunction]
+#[pyo3(signature = (model, plot = "graph"))]
+fn plot_model(py: Python, model: Model, plot: &str) -> PyResult<PyObject> {
+    let visual = model.get_visual(plot);
+    let json_str = visual.to_json();
+    let json_module = py.import("json")?;
+    let dict = json_module.call_method1("loads", (json_str,))?;
+    Ok(dict.to_object(py))
+}
+
 #[pymodule]
 fn causalflow(_py: Python, m: &PyModule) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(analyze_flow, m)?)?;
     m.add_function(wrap_pyfunction!(create_model, m)?)?;
+    m.add_function(wrap_pyfunction!(plot_model, m)?)?;
     m.add_class::<Model>()?;
     m.add_class::<InferenceResult>()?;
     m.add_class::<ValidationResult>()?;
