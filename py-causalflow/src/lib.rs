@@ -48,6 +48,14 @@ impl InferenceResult {
         println!("{}", self.to_visual_tag());
     }
 
+    fn preview(&self, py: Python) -> PyResult<()> {
+        let labels = self.feature_names.clone().unwrap_or_else(|| {
+            (0..self.feature_importance.len()).map(|i| format!("Feature {}", i)).collect()
+        });
+        let visual = VisualOutput::feature_importance(labels, self.feature_importance.clone());
+        render_preview(py, &visual)
+    }
+
     fn __repr__(&self, py: Python) -> String {
         self.summary(py)
     }
@@ -170,6 +178,11 @@ impl Model {
         println!("{}", self.to_visual_tag(plot_type));
     }
 
+    fn preview(&self, py: Python, plot_type: &str) -> PyResult<()> {
+        let visual = self.get_visual(plot_type);
+        render_preview(py, &visual)
+    }
+
     fn estimate_effects(&self, py: Python, x: PyReadonlyArray2<f64>) -> PyResult<InferenceResult> {
         let x_node = x.as_array().to_owned();
         let core_res = self.inner.predict(&x_node);
@@ -225,6 +238,83 @@ fn plot_model(py: Python, model: Model, plot: &str) -> PyResult<PyObject> {
     let json_module = py.import("json")?;
     let dict = json_module.call_method1("loads", (json_str,))?;
     Ok(dict.to_object(py))
+}
+
+fn render_preview(py: Python, visual: &VisualOutput) -> PyResult<()> {
+    let json_data = visual.to_json();
+    let html_template = format!(r#"
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <title>CausalFlow Preview: {}</title>
+    <script src="https://cdn.jsdelivr.net/npm/echarts@5.4.3/dist/echarts.min.js"></script>
+    <style>
+        body {{ font-family: sans-serif; background: #1a1a2e; color: #fff; margin: 0; padding: 20px; }}
+        #chart {{ width: 100%; height: 600px; }}
+        h1 {{ color: #4fc3f7; text-align: center; }}
+    </style>
+</head>
+<body>
+    <h1>CausalFlow: {}</h1>
+    <div id="chart"></div>
+    <script>
+        const rawData = {};
+        const chart = echarts.init(document.getElementById('chart'), 'dark');
+        
+        let option = {{}};
+        if (rawData.visual_type === 'causal_graph') {{
+            option = {{
+                title: {{ text: 'Causal structure', left: 'center' }},
+                tooltip: {{}},
+                series: [{{
+                    type: 'graph', layout: 'force',
+                    symbolSize: 50, roam: true, label: {{ show: true }},
+                    edgeSymbol: ['none', 'arrow'],
+                    data: rawData.data.nodes.map(n => ({{
+                        name: n.label,
+                        itemStyle: {{ color: n.role === 'treatment' ? '#ff7043' : (n.role === 'outcome' ? '#66bb6a' : '#4fc3f7') }}
+                    }})),
+                    links: rawData.data.links,
+                    force: {{ repulsion: 1000 }}
+                }}]
+            }};
+        }} else if (rawData.visual_type === 'effect_dist') {{
+            option = {{
+                xAxis: {{ type: 'category', data: rawData.data.bins, name: rawData.data.x_label }},
+                yAxis: {{ type: 'value', name: rawData.data.y_label }},
+                series: [{{ data: rawData.data.counts, type: 'bar', itemStyle: {{ color: '#4fc3f7' }} }}]
+            }};
+        }} else if (rawData.visual_type === 'feature_importance') {{
+            option = {{
+                yAxis: {{ type: 'category', data: rawData.data.labels }},
+                xAxis: {{ type: 'value' }},
+                series: [{{ data: rawData.data.values, type: 'bar', itemStyle: {{ color: '#81c784' }} }}]
+            }};
+        }}
+        chart.setOption(option);
+    </script>
+</body>
+</html>
+"#, visual.title, visual.title, json_data);
+
+    let tempfile = py.import("tempfile")?;
+    let res = tempfile.call_method1("mkstemp", (".html",))?;
+    let path = res.get_item(1)?.extract::<String>()?;
+    
+    let builtins = py.import("builtins")?;
+    let f = builtins.call_method1("open", (&path, "w"))?;
+    f.call_method1("write", (html_template,))?;
+    f.call_method0("close")?;
+
+    let webbrowser = py.import("webbrowser")?;
+    let os_path = py.import("os.path")?;
+    let abs_path = os_path.call_method1("abspath", (&path,))?;
+    let url = format!("file://{}", abs_path.extract::<String>()?);
+    webbrowser.call_method1("open", (url,))?;
+
+    println!("\n[Preview] Opening visualization in browser: {}", path);
+    Ok(())
 }
 
 #[pymodule]

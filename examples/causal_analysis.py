@@ -60,6 +60,12 @@ def main():
     # Feature Importance (from InferenceResult)
     print("\n[Feature Importance Tag]")
     results.show()
+
+    # --- Local Preview (Optional, for CLI users) ---
+    # Uncomment the lines below to open graphs in your browser locally.
+    print("\n[Local Preview] Opening graphs in your browser...")
+    model.preview(plot_type='graph')
+    results.preview()
     
     print("\nCausalFlow Analysis Complete.")
 
