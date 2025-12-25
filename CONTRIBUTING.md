@@ -4,17 +4,29 @@ Thank you for your interest in contributing to CausalFlow!
 
 ## Development Workflow
 
-1.  **Create a Feature Branch**:
+### 1. Environment Setup
+```bash
+# Create and activate a root-level virtual environment
+python3 -m venv .venv
+source .venv/bin/activate
+pip install --upgrade pip
+
+# Install dependencies and CausalFlow in editable mode
+pip install numpy scikit-learn pandas
+cd py-causalflow && maturin develop && cd ..
+```
+
+2.  **Create a Feature Branch**:
     ```bash
     git checkout -b feat/your-feature-name
     ```
 
-2.  **Rust Development**:
+3.  **Rust Development**:
     - Ensure code is formatted: `cargo fmt`
     - Check for common issues: `cargo clippy`
     - Run tests: `cargo test`
 
-3.  **Python Development**:
+4.  **Python Development**:
     - Rebuild the extension after changes:
       ```bash
       cd py-causalflow
