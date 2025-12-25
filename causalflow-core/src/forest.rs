@@ -1,4 +1,4 @@
-use ndarray::{Array1, Array2, ArrayView1, ArrayView2};
+use ndarray::{Array1, ArrayView1, ArrayView2};
 use rand::seq::SliceRandom;
 use rand::thread_rng;
 use rand::Rng;
@@ -52,7 +52,12 @@ impl CausalForest {
         }
     }
 
-    pub fn fit(&mut self, x: &Array2<f64>, t: &Array1<f64>, y: &Array1<f64>) {
+    pub fn fit(
+        &mut self,
+        x: ArrayView2<f64>,
+        t: ArrayView1<f64>,
+        y: ArrayView1<f64>,
+    ) {
         let n_features = x.ncols();
         self.n_features = n_features;
         self.trees = (0..self.n_estimators)
@@ -60,9 +65,9 @@ impl CausalForest {
             .map(|_| {
                 let mut tree = CausalTree::new(n_features);
                 tree.fit(
-                    x.view(),
-                    t.view(),
-                    y.view(),
+                    x,
+                    t,
+                    y,
                     self.max_depth,
                     self.min_leaf_size,
                 );
@@ -71,22 +76,27 @@ impl CausalForest {
             .collect();
     }
 
-    pub fn fit_placebo(&mut self, x: &Array2<f64>, t: &Array1<f64>, y: &Array1<f64>) {
-        let mut t_shuffled = t.clone();
+    pub fn fit_placebo(
+        &mut self,
+        x: ArrayView2<f64>,
+        t: ArrayView1<f64>,
+        y: ArrayView1<f64>,
+    ) {
+        let mut t_shuffled = t.to_owned();
         let mut rng = thread_rng();
         let mut indices: Vec<usize> = (0..t.len()).collect();
         indices.shuffle(&mut rng);
         
         // Reorder t_shuffled based on shuffled indices
-        let t_orig = t.clone();
+        let t_orig = t.to_owned();
         for (i, &idx) in indices.iter().enumerate() {
             t_shuffled[i] = t_orig[idx];
         }
 
-        self.fit(x, &t_shuffled, y);
+        self.fit(x, t_shuffled.view(), y);
     }
 
-    pub fn predict(&self, x: &Array2<f64>) -> InferenceResult {
+    pub fn predict(&self, x: ArrayView2<f64>) -> InferenceResult {
         let n_samples = x.nrows();
         let mut predictions = Array1::zeros(n_samples);
 
@@ -201,12 +211,14 @@ impl CausalTree {
                 let mut local_best_gain = -1.0;
                 let mut local_best_split = None;
 
-                let values: Vec<f64> = split_idx.iter().map(|&i| x[[i, f_idx]]).collect();
-                for _ in 0..10 {
-                    let threshold = values[local_rng.gen_range(0..values.len())];
+                // Instead of collecting all values, just sample indices to pick thresholds
+                let n_candidates = 10.min(split_idx.len());
+                for _ in 0..n_candidates {
+                    let random_idx = split_idx[local_rng.gen_range(0..split_idx.len())];
+                    let threshold = x[[random_idx, f_idx]];
 
                     let (left_idx, right_idx): (Vec<usize>, Vec<usize>) =
-                        split_idx.iter().partition(|&&i| x[[i, f_idx]] <= threshold);
+                        split_idx.iter().cloned().partition(|&i| x[[i, f_idx]] <= threshold);
 
                     if left_idx.len() < min_leaf_size || right_idx.len() < min_leaf_size {
                         continue;
@@ -300,18 +312,12 @@ impl CausalTree {
         }
     }
 
-    pub fn predict(&self, x: &Array2<f64>) -> Array1<f64> {
+    pub fn predict(&self, x: ArrayView2<f64>) -> Array1<f64> {
         let n_samples = x.nrows();
         let mut preds = Array1::zeros(n_samples);
         if let Some(ref root) = self.root {
             for i in 0..n_samples {
-                let row = x.row(i);
-                if let Some(slice) = row.as_slice() {
-                    preds[i] = root.predict(slice);
-                } else {
-                    let row_vec: Vec<f64> = row.iter().cloned().collect();
-                    preds[i] = root.predict(&row_vec);
-                }
+                preds[i] = root.predict(x.row(i));
             }
         }
         preds
@@ -319,7 +325,7 @@ impl CausalTree {
 }
 
 impl Node {
-    pub fn predict(&self, x: &[f64]) -> f64 {
+    pub fn predict(&self, x: ArrayView1<f64>) -> f64 {
         match self {
             Node::Leaf {
                 treatment_effect, ..

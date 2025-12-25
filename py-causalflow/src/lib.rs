@@ -1,7 +1,6 @@
 use causalflow_core::forest::CausalForest;
 use causalflow_core::validation::validate_causal_structure;
-use ndarray::{Array1, Array2};
-use numpy::{PyArray1, PyReadonlyArray1, PyReadonlyArray2, ToPyArray};
+use numpy::{PyArray1, PyArray2, PyReadonlyArray2, ToPyArray};
 use pyo3::prelude::*;
 
 #[pyfunction]
@@ -178,14 +177,15 @@ struct ValidationResult {
 #[derive(Clone)]
 struct Model {
     inner: CausalForest,
-    x: Array2<f64>,
-    t: Array1<f64>,
-    y: Array1<f64>,
+    x: Py<PyArray2<f64>>,
+    t: Py<PyArray1<f64>>,
+    y: Py<PyArray1<f64>>,
     feature_names: Option<Vec<String>>,
 }
 
 impl Model {
-    fn get_visual(&self, plot_type: &str) -> VisualOutput {
+    fn get_visual(&self, py: Python, plot_type: &str) -> VisualOutput {
+        let x_view = unsafe { self.x.as_ref(py).as_array() };
         match plot_type {
             "graph" => {
                 let mut nodes = Vec::new();
@@ -209,7 +209,7 @@ impl Model {
                     weight: 1.0,
                 });
 
-                let res = self.inner.predict(&self.x);
+                let res = self.inner.predict(x_view); // predict now takes views
                 let importance = res.feature_importance;
 
                 if let Some(names) = &self.feature_names {
@@ -236,7 +236,7 @@ impl Model {
                 VisualOutput::causal_graph(nodes, links)
             }
             "effect_dist" => {
-                let res = self.inner.predict(&self.x);
+                let res = self.inner.predict(x_view);
                 let preds = res.predictions.to_vec();
 
                 // Calculate real histogram
@@ -282,31 +282,30 @@ impl Model {
 #[pymethods]
 impl Model {
     #[pyo3(signature = (plot_type = "graph"))]
-    fn to_visual_tag(&self, plot_type: &str) -> String {
-        let visual = self.get_visual(plot_type);
+    fn to_visual_tag(&self, py: Python, plot_type: &str) -> String {
+        let visual = self.get_visual(py, plot_type);
         format!("```json:causal-plot\n{}\n```", visual.to_json())
     }
 
     #[pyo3(signature = (plot_type = "graph"))]
-    fn show(&self, plot_type: &str) {
-        println!("{}", self.to_visual_tag(plot_type));
+    fn show(&self, py: Python, plot_type: &str) {
+        println!("{}", self.to_visual_tag(py, plot_type));
     }
 
     #[pyo3(signature = (plot_type = "graph"))]
     fn preview(&self, py: Python, plot_type: &str) -> PyResult<()> {
-        let visual = self.get_visual(plot_type);
+        let visual = self.get_visual(py, plot_type);
         render_preview(py, &visual)
     }
 
     #[pyo3(signature = (plot_type = "graph"))]
-    fn to_html(&self, plot_type: &str) -> String {
-        let visual = self.get_visual(plot_type);
+    fn to_html(&self, py: Python, plot_type: &str) -> String {
+        let visual = self.get_visual(py, plot_type);
         render_html_fragment(&visual)
     }
 
     fn estimate_effects(&self, py: Python, x: PyReadonlyArray2<f64>) -> PyResult<InferenceResult> {
-        let x_node = x.as_array().to_owned();
-        let core_res = self.inner.predict(&x_node);
+        let core_res = self.inner.predict(x.as_array());
 
         Ok(InferenceResult {
             mean_effect: core_res.mean_effect,
@@ -318,43 +317,55 @@ impl Model {
     }
 
     #[pyo3(signature = (n_folds = 5, is_time_series = false))]
-    fn validate(&self, n_folds: usize, is_time_series: bool) -> PyResult<ValidationResult> {
+    fn validate(&self, py: Python, n_folds: usize, is_time_series: bool) -> PyResult<ValidationResult> {
         let _ = is_time_series; // Suppress unused warning while keeping the name
-        let res = validate_causal_structure(&self.inner, &self.x, &self.t, &self.y, n_folds);
+        let (x_view, t_view, y_view) = unsafe {
+            (
+                self.x.as_ref(py).as_array(),
+                self.t.as_ref(py).as_array(),
+                self.y.as_ref(py).as_array(),
+            )
+        };
+        
+        let res = validate_causal_structure(&self.inner, x_view, t_view, y_view, n_folds);
         Ok(ValidationResult {
             is_robust: res.is_robust,
             message: res.message,
         })
     }
 
-    fn plot_importance(&self) {
-        println!("{}", self.to_visual_tag("importance"));
+    fn plot_importance(&self, py: Python) {
+        println!("{}", self.to_visual_tag(py, "importance"));
     }
 
-    fn plot_effects(&self) {
-        println!("{}", self.to_visual_tag("effect_dist"));
+    fn plot_effects(&self, py: Python) {
+        println!("{}", self.to_visual_tag(py, "effect_dist"));
     }
 }
 
 #[pyfunction]
 #[pyo3(signature = (features, treatment, outcome, feature_names = None))]
 fn create_model(
-    features: PyReadonlyArray2<f64>,
-    treatment: PyReadonlyArray1<f64>,
-    outcome: PyReadonlyArray1<f64>,
+    py: Python,
+    features: Py<PyArray2<f64>>,
+    treatment: Py<PyArray1<f64>>,
+    outcome: Py<PyArray1<f64>>,
     feature_names: Option<Vec<String>>,
 ) -> PyResult<Model> {
-    let x = features.as_array().to_owned();
-    let t = treatment.as_array().to_owned();
-    let y = outcome.as_array().to_owned();
-
     let mut forest = CausalForest::new(10, 5, 5);
-    forest.fit(&x, &t, &y);
+    unsafe {
+        forest.fit(
+            features.as_ref(py).as_array(),
+            treatment.as_ref(py).as_array(),
+            outcome.as_ref(py).as_array(),
+        );
+    }
+    
     Ok(Model {
         inner: forest,
-        x,
-        t,
-        y,
+        x: features,
+        t: treatment,
+        y: outcome,
         feature_names,
     })
 }
@@ -362,7 +373,7 @@ fn create_model(
 #[pyfunction]
 #[pyo3(signature = (model, plot = "graph"))]
 fn plot_model(py: Python, model: Model, plot: &str) -> PyResult<PyObject> {
-    let visual = model.get_visual(plot);
+    let visual = model.get_visual(py, plot);
     let json_str = visual.to_json();
     let json_module = py.import("json")?;
     let dict = json_module.call_method1("loads", (json_str,))?;

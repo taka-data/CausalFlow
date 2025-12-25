@@ -1,5 +1,5 @@
 use crate::forest::CausalForest;
-use ndarray::{Array1, Array2};
+use ndarray::{ArrayView1, ArrayView2};
 
 pub struct ValidationResult {
     pub is_robust: bool,
@@ -8,9 +8,9 @@ pub struct ValidationResult {
 
 pub fn validate_causal_structure(
     forest: &CausalForest,
-    x: &Array2<f64>,
-    t: &Array1<f64>,
-    y: &Array1<f64>,
+    x: ArrayView2<f64>,
+    t: ArrayView1<f64>,
+    y: ArrayView1<f64>,
     n_folds: usize,
 ) -> ValidationResult {
     // 1. Placebo Test: Shuffling treatment should result in near-zero effect
