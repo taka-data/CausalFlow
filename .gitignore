@@ -2,3 +2,10 @@
 **/.venv
 **/*.rs.bk
 Cargo.lock
+.DS_Store
+
+# Internal AI/Assistant Documents
+implementation_plan.md
+walkthrough.md
+task.md
+.gemini/
