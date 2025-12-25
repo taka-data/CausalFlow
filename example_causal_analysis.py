@@ -45,10 +45,14 @@ def main():
     else:
         print(f"Warning: {validation.message}")
 
-    # 4. Visualization (Placeholders)
-    print("\n[Step 4] Visualizing Results (Placeholders)...")
-    model.plot_importance()
-    model.plot_effects()
+    # 4. Visualization (LLM-Friendly Tags)
+    print("\n[Step 4] Generating Visualization Tags (for LLM/Chat UI)...")
+    
+    print("\n[Causal Graph Tag]")
+    print(model.to_visual_tag())
+    
+    print("\n[Feature Importance Tag]")
+    print(results.to_visual_tag())
     
     print("\nCausalFlow Analysis Complete.")
 

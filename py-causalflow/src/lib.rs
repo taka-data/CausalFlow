@@ -21,8 +21,18 @@ pub struct InferenceResult {
     pub feature_names: Option<Vec<String>>,
 }
 
+use causalflow_core::visualization::{VisualOutput, NodeInfo, EdgeInfo};
+
 #[pymethods]
 impl InferenceResult {
+    fn to_visual_tag(&self) -> String {
+        let labels = self.feature_names.clone().unwrap_or_else(|| {
+            (0..self.feature_importance.len()).map(|i| format!("Feature {}", i)).collect()
+        });
+        let visual = VisualOutput::feature_importance(labels, self.feature_importance.clone());
+        format!("```json:causal-plot\n{}\n```", visual.to_json())
+    }
+
     fn __repr__(&self, py: Python) -> String {
         self.summary(py)
     }
@@ -84,6 +94,28 @@ struct Model {
 
 #[pymethods]
 impl Model {
+    fn to_visual_tag(&self) -> String {
+        let mut nodes = Vec::new();
+        let mut edges = Vec::new();
+
+        nodes.push(NodeInfo { id: "Treatment".to_string(), role: "treatment".to_string() });
+        nodes.push(NodeInfo { id: "Outcome".to_string(), role: "outcome".to_string() });
+        edges.push(EdgeInfo { source: "Treatment".to_string(), target: "Outcome".to_string(), weight: 1.0 });
+
+        if let Some(names) = &self.feature_names {
+            for name in names {
+                if name != "Treatment" && name != "Outcome" {
+                    nodes.push(NodeInfo { id: name.clone(), role: "confounder".to_string() });
+                    edges.push(EdgeInfo { source: name.clone(), target: "Treatment".to_string(), weight: 0.5 });
+                    edges.push(EdgeInfo { source: name.clone(), target: "Outcome".to_string(), weight: 0.5 });
+                }
+            }
+        }
+
+        let visual = VisualOutput::causal_graph(nodes, edges);
+        format!("```json:causal-plot\n{}\n```", visual.to_json())
+    }
+
     fn estimate_effects(&self, py: Python, x: PyReadonlyArray2<f64>) -> PyResult<InferenceResult> {
         let x_node = x.as_array().to_owned();
         let core_res = self.inner.predict(&x_node);
