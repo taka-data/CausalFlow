@@ -44,6 +44,10 @@ impl InferenceResult {
         Ok(dict.to_object(py))
     }
 
+    fn show(&self) {
+        println!("{}", self.to_visual_tag());
+    }
+
     fn __repr__(&self, py: Python) -> String {
         self.summary(py)
     }
@@ -160,6 +164,10 @@ impl Model {
     fn to_visual_tag(&self, plot_type: &str) -> String {
         let visual = self.get_visual(plot_type);
         format!("```json:causal-plot\n{}\n```", visual.to_json())
+    }
+
+    fn show(&self, plot_type: &str) {
+        println!("{}", self.to_visual_tag(plot_type));
     }
 
     fn estimate_effects(&self, py: Python, x: PyReadonlyArray2<f64>) -> PyResult<InferenceResult> {

@@ -50,19 +50,16 @@ def main():
     print("\n[Step 4] Generating Visualization Data (Headless UI Concept)...")
     
     # Pattern A: Causal Graph
-    graph_data = cf.plot_model(model, plot='graph')
     print("\n[Causal Graph Tag]")
-    print(f"```json:causal-plot\n{json.dumps(graph_data, indent=2)}\n```")
+    model.show(plot_type='graph')
     
     # Pattern B: Effect Distribution
-    dist_data = cf.plot_model(model, plot='effect_dist')
     print("\n[Effect Distribution Tag]")
-    print(f"```json:causal-plot\n{json.dumps(dist_data, indent=2)}\n```")
+    model.show(plot_type='effect_dist')
 
     # Feature Importance (from InferenceResult)
-    imp_data = results.to_dict()
     print("\n[Feature Importance Tag]")
-    print(f"```json:causal-plot\n{json.dumps(imp_data, indent=2)}\n```")
+    results.show()
     
     print("\nCausalFlow Analysis Complete.")
 
