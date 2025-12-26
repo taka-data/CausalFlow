@@ -305,7 +305,7 @@ impl Model {
     }
 
     fn estimate_effects(&self, py: Python, x: PyReadonlyArray2<f64>) -> PyResult<InferenceResult> {
-        let core_res = self.inner.predict(x.as_array());
+        let core_res = self.inner.predict_result(x.as_array())?;
 
         Ok(InferenceResult {
             mean_effect: core_res.mean_effect,
@@ -354,11 +354,11 @@ fn create_model(
 ) -> PyResult<Model> {
     let mut forest = CausalForest::new(10, 5, 5);
     unsafe {
-        forest.fit(
+        forest.fit_result(
             features.as_ref(py).as_array(),
             treatment.as_ref(py).as_array(),
             outcome.as_ref(py).as_array(),
-        );
+        )?;
     }
     
     Ok(Model {

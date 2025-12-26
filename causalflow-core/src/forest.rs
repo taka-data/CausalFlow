@@ -1,3 +1,4 @@
+use crate::errors::{CausalFlowError, Result};
 use ndarray::{Array1, ArrayView1, ArrayView2};
 use rand::seq::SliceRandom;
 use rand::thread_rng;
@@ -52,12 +53,43 @@ impl CausalForest {
         }
     }
 
+    fn validate_data(&self, x: ArrayView2<f64>, t: ArrayView1<f64>, y: ArrayView1<f64>) -> Result<()> {
+        if x.is_empty() {
+            return Err(CausalFlowError::EmptyData);
+        }
+
+        if x.iter().any(|&v| v.is_nan() || v.is_infinite()) ||
+           t.iter().any(|&v| v.is_nan() || v.is_infinite()) ||
+           y.iter().any(|&v| v.is_nan() || v.is_infinite()) {
+            return Err(CausalFlowError::InvalidData);
+        }
+
+        for &v in t.iter() {
+            if (v - 0.0).abs() > f64::EPSILON && (v - 1.0).abs() > f64::EPSILON {
+                return Err(CausalFlowError::InvalidTreatment(v));
+            }
+        }
+
+        Ok(())
+    }
+
     pub fn fit(
         &mut self,
         x: ArrayView2<f64>,
         t: ArrayView1<f64>,
         y: ArrayView1<f64>,
     ) {
+        let _ = self.fit_result(x, t, y);
+    }
+
+    pub fn fit_result(
+        &mut self,
+        x: ArrayView2<f64>,
+        t: ArrayView1<f64>,
+        y: ArrayView1<f64>,
+    ) -> Result<()> {
+        self.validate_data(x, t, y)?;
+
         let n_features = x.ncols();
         self.n_features = n_features;
         self.trees = (0..self.n_estimators)
@@ -74,6 +106,8 @@ impl CausalForest {
                 tree
             })
             .collect();
+        
+        Ok(())
     }
 
     pub fn fit_placebo(
@@ -82,6 +116,15 @@ impl CausalForest {
         t: ArrayView1<f64>,
         y: ArrayView1<f64>,
     ) {
+        let _ = self.fit_placebo_result(x, t, y);
+    }
+
+    pub fn fit_placebo_result(
+        &mut self,
+        x: ArrayView2<f64>,
+        t: ArrayView1<f64>,
+        y: ArrayView1<f64>,
+    ) -> Result<()> {
         let mut t_shuffled = t.to_owned();
         let mut rng = thread_rng();
         let mut indices: Vec<usize> = (0..t.len()).collect();
@@ -93,46 +136,59 @@ impl CausalForest {
             t_shuffled[i] = t_orig[idx];
         }
 
-        self.fit(x, t_shuffled.view(), y);
+        self.fit_result(x, t_shuffled.view(), y)
     }
 
     pub fn predict(&self, x: ArrayView2<f64>) -> InferenceResult {
+        self.predict_result(x).unwrap_or_else(|_| InferenceResult {
+            predictions: Array1::zeros(x.nrows()),
+            mean_effect: 0.0,
+            confidence_intervals: vec![(0.0, 0.0); x.nrows()],
+            feature_importance: vec![0.0; self.n_features],
+        })
+    }
+
+    pub fn predict_result(&self, x: ArrayView2<f64>) -> Result<InferenceResult> {
+        if self.trees.is_empty() {
+            return Err(CausalFlowError::ModelNotFitted);
+        }
+
         let n_samples = x.nrows();
+        if n_samples == 0 {
+            return Err(CausalFlowError::EmptyData);
+        }
+
         let mut predictions = Array1::zeros(n_samples);
 
         for tree in &self.trees {
             predictions += &tree.predict(x);
         }
 
-        if !self.trees.is_empty() {
-            predictions /= self.trees.len() as f64;
-        }
+        predictions /= self.trees.len() as f64;
 
         let mean_effect = predictions.mean().unwrap_or(0.0);
         let confidence_intervals = predictions.iter().map(|&p| (p - 0.1, p + 0.1)).collect();
 
         // Aggregate feature importance
         let mut feature_importance = vec![0.0; self.n_features];
-        if !self.trees.is_empty() {
-            for tree in &self.trees {
-                for (i, &imp) in tree.feature_importance.iter().enumerate() {
-                    feature_importance[i] += imp;
-                }
+        for tree in &self.trees {
+            for (i, &imp) in tree.feature_importance.iter().enumerate() {
+                feature_importance[i] += imp;
             }
-            let sum: f64 = feature_importance.iter().sum();
-            if sum > 0.0 {
-                for imp in feature_importance.iter_mut() {
-                    *imp /= sum;
-                }
+        }
+        let sum: f64 = feature_importance.iter().sum();
+        if sum > 0.0 {
+            for imp in feature_importance.iter_mut() {
+                *imp /= sum;
             }
         }
 
-        InferenceResult {
+        Ok(InferenceResult {
             predictions,
             mean_effect,
             confidence_intervals,
             feature_importance,
-        }
+        })
     }
 }
 
