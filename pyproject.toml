@@ -21,7 +21,8 @@ classifiers = [
 
 [tool.maturin]
 features = ["pyo3/extension-module"]
-module-name = "causalflow"
+module-name = "causalflow._causalflow"
 manifest-path = "py-causalflow/Cargo.toml"
+python-source = "py-causalflow"
 # Include the type stub file
-include = ["causalflow.pyi"]
+include = ["causalflow/causalflow.pyi"]

@@ -1,4 +1,5 @@
 use crate::errors::{CausalFlowError, Result};
+use crate::model::CausalModel;
 use ndarray::{Array1, ArrayView1, ArrayView2};
 use rand::seq::SliceRandom;
 use rand::thread_rng;
@@ -189,6 +190,16 @@ impl CausalForest {
             confidence_intervals,
             feature_importance,
         })
+    }
+}
+
+impl CausalModel for CausalForest {
+    fn fit(&mut self, x: ArrayView2<f64>, t: ArrayView1<f64>, y: ArrayView1<f64>) -> Result<()> {
+        self.fit_result(x, t, y)
+    }
+
+    fn predict(&self, x: ArrayView2<f64>) -> Result<InferenceResult> {
+        self.predict_result(x)
     }
 }
 

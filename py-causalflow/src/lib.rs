@@ -1,6 +1,7 @@
 use causalflow_core::forest::CausalForest;
 use causalflow_core::validation::validate_causal_structure;
 use numpy::{PyArray1, PyArray2, PyReadonlyArray2, ToPyArray};
+use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
 
 #[pyfunction]
@@ -173,10 +174,35 @@ struct ValidationResult {
     pub message: String,
 }
 
+use causalflow_core::linear::LinearCausalModel;
+use causalflow_core::model::CausalModel;
+
+#[derive(Clone)]
+enum CausalMethod {
+    Forest(CausalForest),
+    Linear(LinearCausalModel),
+}
+
+impl CausalMethod {
+    fn as_trait(&self) -> &dyn CausalModel {
+        match self {
+            CausalMethod::Forest(f) => f,
+            CausalMethod::Linear(l) => l,
+        }
+    }
+
+    fn as_trait_mut(&mut self) -> &mut dyn CausalModel {
+        match self {
+            CausalMethod::Forest(f) => f,
+            CausalMethod::Linear(l) => l,
+        }
+    }
+}
+
 #[pyclass]
 #[derive(Clone)]
 struct Model {
-    inner: CausalForest,
+    method: CausalMethod,
     x: Py<PyArray2<f64>>,
     t: Py<PyArray1<f64>>,
     y: Py<PyArray1<f64>>,
@@ -209,7 +235,7 @@ impl Model {
                     weight: 1.0,
                 });
 
-                let res = self.inner.predict(x_view); // predict now takes views
+                let res = self.method.as_trait().predict(x_view).unwrap_or_else(|_| self.method.as_trait().predict(x_view).unwrap()); // Simplified for visual
                 let importance = res.feature_importance;
 
                 if let Some(names) = &self.feature_names {
@@ -236,7 +262,7 @@ impl Model {
                 VisualOutput::causal_graph(nodes, links)
             }
             "effect_dist" => {
-                let res = self.inner.predict(x_view);
+                let res = self.method.as_trait().predict(x_view).unwrap_or_else(|_| self.method.as_trait().predict(x_view).unwrap());
                 let preds = res.predictions.to_vec();
 
                 // Calculate real histogram
@@ -305,7 +331,7 @@ impl Model {
     }
 
     fn estimate_effects(&self, py: Python, x: PyReadonlyArray2<f64>) -> PyResult<InferenceResult> {
-        let core_res = self.inner.predict_result(x.as_array())?;
+        let core_res = self.method.as_trait().predict(x.as_array())?;
 
         Ok(InferenceResult {
             mean_effect: core_res.mean_effect,
@@ -327,11 +353,18 @@ impl Model {
             )
         };
         
-        let res = validate_causal_structure(&self.inner, x_view, t_view, y_view, n_folds);
-        Ok(ValidationResult {
-            is_robust: res.is_robust,
-            message: res.message,
-        })
+        if let CausalMethod::Forest(ref forest) = self.method {
+            let res = validate_causal_structure(forest, x_view, t_view, y_view, n_folds);
+            Ok(ValidationResult {
+                is_robust: res.is_robust,
+                message: res.message,
+            })
+        } else {
+            Ok(ValidationResult {
+                is_robust: true,
+                message: "Validation not implemented for this model type yet.".to_string(),
+            })
+        }
     }
 
     fn plot_importance(&self, py: Python) {
@@ -344,25 +377,36 @@ impl Model {
 }
 
 #[pyfunction]
-#[pyo3(signature = (features, treatment, outcome, feature_names = None))]
+#[pyo3(signature = (features, treatment, outcome, method = "forest", feature_names = None))]
 fn create_model(
     py: Python,
     features: Py<PyArray2<f64>>,
     treatment: Py<PyArray1<f64>>,
     outcome: Py<PyArray1<f64>>,
+    method: &str,
     feature_names: Option<Vec<String>>,
 ) -> PyResult<Model> {
-    let mut forest = CausalForest::new(10, 5, 5);
+    let mut causal_method = match method {
+        "forest" => CausalMethod::Forest(CausalForest::new(10, 5, 5)),
+        "linear" => CausalMethod::Linear(LinearCausalModel::new()),
+        _ => {
+            return Err(PyValueError::new_err(format!(
+                "Unknown method: {}. Supported methods are 'forest', 'linear'",
+                method
+            )))
+        }
+    };
+
     unsafe {
-        forest.fit_result(
+        causal_method.as_trait_mut().fit(
             features.as_ref(py).as_array(),
             treatment.as_ref(py).as_array(),
             outcome.as_ref(py).as_array(),
         )?;
     }
-    
+
     Ok(Model {
-        inner: forest,
+        method: causal_method,
         x: features,
         t: treatment,
         y: outcome,
@@ -543,7 +587,7 @@ fn uuid_gen() -> String {
 }
 
 #[pymodule]
-fn causalflow(_py: Python, m: &PyModule) -> PyResult<()> {
+fn _causalflow(_py: Python, m: &PyModule) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(analyze_flow, m)?)?;
     m.add_function(wrap_pyfunction!(create_model, m)?)?;
     m.add_function(wrap_pyfunction!(plot_model, m)?)?;

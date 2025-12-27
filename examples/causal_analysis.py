@@ -21,14 +21,15 @@ def main():
     print(f"Treatment shape: {T.shape}")
     print(f"Outcome shape: {Y.shape}")
 
-    # 1. Create a causal model (Causal Forest)
-    print("\n[Step 1] Creating Causal Model (Rust-backed)...")
-    # Using named arguments and passing feature names
+    # 1. Create a causal model (Unified API)
+    print("\n[Step 1] Creating Causal Model (Automatic Preprocessing)...")
+    # Now we can pass the DataFrame directly!
+    # And choose between 'forest' and 'linear'
     model = cf.create_model(
-        features=X, 
-        treatment=T, 
-        outcome=Y, 
-        feature_names=list(data.feature_names)
+        features=df.drop(columns=['target']), 
+        treatment=df['MedInc'], 
+        outcome=df['target'], 
+        method='forest' # or 'linear'
     )
     
     # 2. Estimate effects
