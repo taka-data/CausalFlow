@@ -34,7 +34,7 @@ class DataProcessor:
         if self.categorical_columns_:
             processed_df = pd.get_dummies(processed_df, columns=self.categorical_columns_)
         
-        self.feature_names_out_ = processed_df.columns.tolist()
+        self.feature_names_out_ = [str(c) for c in processed_df.columns.tolist()]
         return processed_df.values.astype(np.float64)
 
     def transform(self, df):

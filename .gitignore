@@ -1,11 +1,20 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.venv/
+build/
+dist/
+*.egg-info/
+
+# Rust
 /target
-**/.venv
-**/*.rs.bk
 Cargo.lock
-.DS_Store
 
 # Internal AI/Assistant Documents
 implementation_plan.md
 walkthrough.md
 task.md
 .gemini/
+.DS_Store
