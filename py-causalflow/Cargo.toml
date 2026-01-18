@@ -1,6 +1,6 @@
 [package]
 name = "py-causalflow"
-version = "0.1.0"
+version = "0.1.1"
 edition = "2021"
 description = "Python bindings for CausalFlow"
 license = "MIT"
