@@ -2,6 +2,9 @@
 name = "py-causalflow"
 version = "0.1.0"
 edition = "2021"
+description = "Python bindings for CausalFlow"
+license = "MIT"
+repository = "https://github.com/taka-data/CausalFlow"
 
 [lib]
 name = "_causalflow"

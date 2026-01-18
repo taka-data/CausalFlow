@@ -2,6 +2,9 @@
 name = "causalflow-core"
 version = "0.1.0"
 edition = "2021"
+description = "Core engine for CausalFlow"
+license = "MIT"
+repository = "https://github.com/taka-data/CausalFlow"
 
 [dependencies]
 ndarray = { version = "0.15", features = ["serde"] }

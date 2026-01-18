@@ -30,26 +30,51 @@ class CausalModelWrapper:
         # Fallback to the internal Rust model
         return getattr(self._model, name)
 
-def create_model(features, treatment, outcome, method="forest", feature_names=None):
+def create_model(features, treatment, outcome, method="forest", feature_names=None, use_mice=True):
     """
     High-level factory function with automated preprocessing and unified API.
     """
-    processor = DataProcessor()
+    if not isinstance(features, pd.DataFrame):
+        features = pd.DataFrame(features)
+    
+    if isinstance(treatment, (pd.Series, pd.DataFrame)):
+        treatment_df = pd.DataFrame(treatment)
+    else:
+        treatment_df = pd.DataFrame(treatment, columns=["treatment"])
+        
+    if isinstance(outcome, (pd.Series, pd.DataFrame)):
+        outcome_df = pd.DataFrame(outcome)
+    else:
+        outcome_df = pd.DataFrame(outcome, columns=["outcome"])
+
+    # Align indices and check for NaNs in treatment and outcome
+    # We join them to ensure indices are aligned before dropping
+    combined = pd.concat([features, treatment_df, outcome_df], axis=1)
+    
+    # Identify indices where treatment or outcome are NaN
+    treatment_cols = [f"t_{i}" if i < treatment_df.shape[1] else col for i, col in enumerate(treatment_df.columns)]
+    outcome_cols = [f"y_{i}" if i < outcome_df.shape[1] else col for i, col in enumerate(outcome_df.columns)]
+    
+    # Simpler way to get the mask: use the original dataframes to check for NaNs
+    valid_mask = treatment_df.notna().all(axis=1) & outcome_df.notna().all(axis=1)
+    
+    if not valid_mask.all():
+        n_dropped = (~valid_mask).sum()
+        print(f"Warning: Dropping {n_dropped} rows due to missing values in treatment or outcome.")
+        features = features[valid_mask]
+        treatment_df = treatment_df[valid_mask]
+        outcome_df = outcome_df[valid_mask]
+
+    processor = DataProcessor(use_mice=use_mice)
     
     # 1. Preprocess features
     x_processed = processor.fit_transform(features)
     
     # 2. Preprocess treatment
-    if isinstance(treatment, (pd.Series, pd.DataFrame)):
-        t_numeric = treatment.values.flatten()
-    else:
-        t_numeric = np.array(treatment).flatten()
+    t_numeric = treatment_df.values.flatten()
         
     # 3. Preprocess outcome
-    if isinstance(outcome, (pd.Series, pd.DataFrame)):
-        y_numeric = outcome.values.flatten()
-    else:
-        y_numeric = np.array(outcome).flatten()
+    y_numeric = outcome_df.values.flatten()
 
     # Create the internal Rust model
     rust_model = _causalflow.create_model(
