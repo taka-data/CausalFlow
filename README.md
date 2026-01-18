@@ -11,21 +11,29 @@ CausalFlow provides a state-of-the-art **Causal Forest (Generalized Random Fores
 - 🦀 **High-Performance Core**: Implemented in Rust with **zero-copy data access** and **Rayon-powered multi-threading**.
 - 🌲 **Generalized Random Forest (GRF)**: Robust splitting criteria maximizing treatment effect variance.
 - ⚖️ **Honesty Property**: Built-in data subsampling to ensure unbiased effect estimation and prevent overfitting.
-- 🤖 **LLM-Friendly**: 
-    - **Structured Summaries**: Automatic natural language interpretation of results.
-    - **ASCII Tables**: Clean terminal outputs for easy digestion by AI agents.
-    - **Type Hints**: Full `.pyi` support for IDEs and LLM tool calling.
+- 🤖 **LLM-Friendly**:
+  - **Structured Summaries**: Automatic natural language interpretation of results.
+  - **ASCII Tables**: Clean terminal outputs for easy digestion by AI agents.
+  - **Type Hints**: Full `.pyi` support for IDEs and LLM tool calling.
 - 🛡️ **Validation Guardrails**: Built-in methods for causal robustness checks (cross-validation, time-series support).
 
 ## Installation
 
-### Prerequisites
+### From PyPI (Recommended)
+
+```bash
+pip install causalflow-rust
+```
+
+### From Source
+
+#### Prerequisites
 
 - Rust toolchain (cargo, rustc)
 - Python 3.8+
-- `maturin` (for building from source)
+- `maturin`
 
-### 1. Installation
+#### Build and Install
 
 ```bash
 # Clone the repository
@@ -41,7 +49,7 @@ maturin develop
 
 ## Quick Start
 
-```python
+````python
 import numpy as np
 import causalflow as cf
 from sklearn.datasets import fetch_california_housing
@@ -53,9 +61,9 @@ T = (X[:, 0] > X[:, 0].mean()).astype(float) # Dummy treatment
 
 # 1. Create Model
 model = cf.create_model(
-    features=X, 
-    treatment=T, 
-    outcome=Y, 
+    features=X,
+    treatment=T,
+    outcome=Y,
     feature_names=list(data.feature_names)
 )
 
@@ -70,7 +78,7 @@ print(f"```json:causal-plot\n{viz_data}\n```")
 # 4. Validate Robustness
 validation = model.validate(n_folds=5)
 print(validation.message)
-```
+````
 
 ## Headless Visualization concept
 
