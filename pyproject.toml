@@ -4,7 +4,7 @@ build-backend = "maturin"
 
 [project]
 name = "causalflow-rust"
-version = "0.1.1"
+version = "0.1.2"
 description = "High-performance Causal Inference engine powered by Rust"
 authors = [
     { name = "CausalFlow Contributors" }
@@ -33,4 +33,4 @@ module-name = "causalflow._causalflow"
 manifest-path = "py-causalflow/Cargo.toml"
 python-source = "py-causalflow"
 # Include the type stub file
-include = ["causalflow/causalflow.pyi"]
+include = ["py-causalflow/causalflow/causalflow.pyi"]
